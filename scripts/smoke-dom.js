@@ -93,6 +93,12 @@ async function main() {
     pretendToBeVisual: true, // fournit requestAnimationFrame
   });
 
+  // jsdom ne va pas chercher la feuille de style toute seule : on l'injecte
+  // pour pouvoir vérifier ce qui est réellement visible à l'écran.
+  const style = dom.window.document.createElement("style");
+  style.textContent = fs.readFileSync(path.resolve("client/src/style.css"), "utf8");
+  dom.window.document.head.appendChild(style);
+
   const context = fakeContext();
   dom.window.HTMLCanvasElement.prototype.getContext = function () {
     context.canvas = this;
@@ -217,7 +223,46 @@ async function main() {
   formes = await formesAvant();
   check("la gomme supprime la forme cliquée", !formes.some((s) => s.id === dessine.id));
 
-  // 7) Zoom.
+  // 7) Fermeture des fenêtres flottantes.
+  //
+  //    Attention : un vrai navigateur donne la priorité à NOTRE feuille de
+  //    style sur ses propres règles. « .modal { display: grid } » écrasait
+  //    donc l'attribut « hidden » et la fenêtre restait affichée. jsdom ne
+  //    reproduit pas cette priorité : on vérifie donc explicitement que la
+  //    règle de protection est bien présente dans le CSS.
+  const css = fs.readFileSync(path.resolve("client/src/style.css"), "utf8");
+  check(
+    "le CSS force la disparition des éléments « hidden » (régression)",
+    /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/.test(css)
+  );
+
+  const modal = el("share-modal");
+  const echap = () =>
+    dom.window.document.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    );
+  const clic = (node) => node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+
+  // Le menu Exporter était resté ouvert depuis l'étape précédente.
+  echap();
+  check("la touche Échap referme le menu Exporter", el("export-menu").hidden === true);
+
+  modal.hidden = false;
+  clic(el("share-close"));
+  check("le bouton « Fermer » referme la fenêtre de partage", modal.hidden === true);
+
+  modal.hidden = false;
+  echap();
+  check("la touche Échap referme la fenêtre de partage", modal.hidden === true);
+
+  modal.hidden = false;
+  clic(modal.querySelector(".modal-box"));
+  check("cliquer À L'INTÉRIEUR ne referme pas la fenêtre", modal.hidden === false);
+
+  clic(modal);
+  check("cliquer en dehors referme la fenêtre", modal.hidden === true);
+
+  // 8) Zoom.
   const zoomAvant = el("zoom-reset").textContent;
   el("zoom-in").dispatchEvent(new dom.window.Event("click"));
   check("le bouton zoom + change le niveau de zoom", el("zoom-reset").textContent !== zoomAvant);

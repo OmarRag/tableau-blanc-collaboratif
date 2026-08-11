@@ -28,6 +28,17 @@ body {
   font-size: 14px;
 }
 
+/* IMPORTANT — ne pas supprimer.
+   L'attribut « hidden » du HTML est appliqué par le navigateur avec une
+   simple règle « [hidden] { display: none } ». Or les règles écrites dans
+   NOTRE feuille de style l'emportent toujours sur celles du navigateur.
+   Donc « .modal { display: grid } » annulait l'attribut hidden, et la
+   fenêtre de partage restait affichée quoi qu'on fasse en JavaScript.
+   Cette règle rétablit le comportement attendu pour tout le projet. */
+[hidden] {
+  display: none !important;
+}
+
 body.page-board {
   overflow: hidden;
   background: #fff;

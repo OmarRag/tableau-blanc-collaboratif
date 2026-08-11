@@ -329,6 +329,10 @@ export function createTools({ canvas, camera, store, renderer, readOnly, onCurso
 
   window.addEventListener("keydown", (event) => {
     if (isTypingElsewhere(event.target)) return;
+    // Quand une fenêtre est ouverte par-dessus le tableau, les raccourcis du
+    // canvas ne doivent plus répondre (Échap doit fermer la fenêtre, pas
+    // désélectionner les formes derrière).
+    if (document.querySelector(".modal:not([hidden])")) return;
 
     if (event.code === "Space" && !spaceHeld) {
       spaceHeld = true;

@@ -200,9 +200,20 @@ function setupUi() {
     }
   };
 
-  // Partage
+  // Partage — trois façons de refermer la fenêtre : le bouton, la touche
+  // Échap, et un clic en dehors de la boîte blanche.
   el("btn-share").onclick = openShare;
-  el("share-close").onclick = () => (el("share-modal").hidden = true);
+  el("share-close").onclick = closeShare;
+  el("share-modal").onclick = (event) => {
+    // On ne ferme que si le clic a touché le fond gris lui-même : un clic
+    // sur la boîte remonte jusqu'ici, mais ne doit rien fermer.
+    if (event.target === el("share-modal")) closeShare();
+  };
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!el("share-modal").hidden) closeShare();
+    else el("export-menu").hidden = true;
+  });
   el("share-copy").onclick = async () => {
     await navigator.clipboard.writeText(el("share-link").value);
     toast("Lien copié");
@@ -241,6 +252,10 @@ function setupUi() {
 
   // Le zoom du navigateur (Ctrl + molette) est déjà capté par le canvas.
   window.addEventListener("beforeunload", () => net?.destroy());
+}
+
+function closeShare() {
+  el("share-modal").hidden = true;
 }
 
 async function openShare() {
