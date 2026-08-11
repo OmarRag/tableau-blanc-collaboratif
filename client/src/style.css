@@ -225,6 +225,14 @@ body.page-home {
 #board {
   position: fixed;
   inset: 0;
+  /* IMPORTANT — ne pas supprimer.
+     « inset: 0 » suffit à étirer une <div> sur tout l'écran, mais PAS un
+     <canvas> : c'est un « élément remplacé » (comme <img> ou <video>), dont
+     la taille automatique est sa taille intrinsèque, soit 300 × 150 px. Sans
+     ces deux lignes, le canvas reste un petit rectangle en haut à gauche et
+     tous les clics passent à côté : plus aucun outil ne fonctionne. */
+  width: 100%;
+  height: 100%;
   display: block;
   touch-action: none;
   cursor: crosshair;

@@ -84,6 +84,10 @@ export function createTools({ canvas, camera, store, renderer, readOnly, onCurso
         break;
       }
       case "text":
+        // On empêche le comportement par défaut du navigateur : sans cela il
+        // déplace le focus vers la page juste après notre code, ce qui ferme
+        // aussitôt la zone de saisie qu'on vient d'ouvrir.
+        event.preventDefault();
         openTextEditor(point);
         break;
       case "eraser":
@@ -277,9 +281,23 @@ export function createTools({ canvas, camera, store, renderer, readOnly, onCurso
     editor.style.fontSize = `${fontSize * camera.zoom}px`;
     editor.style.color = state.style.stroke;
     document.body.appendChild(editor);
-    editor.focus();
-
     textEditor = { editor, point, fontSize, existing };
+
+    // On donne le focus à l'image suivante, une fois que le navigateur a fini
+    // de traiter le clic ; sinon il nous le reprend immédiatement. Le
+    // détecteur de perte de focus n'est branché qu'après, pour la même raison.
+    requestAnimationFrame(() => {
+      editor.focus();
+      const selection = window.getSelection();
+      if (selection && editor.firstChild) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false); // curseur à la fin du texte existant
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      editor.addEventListener("blur", closeTextEditor);
+    });
 
     editor.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {

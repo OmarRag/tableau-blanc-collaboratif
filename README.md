@@ -33,13 +33,17 @@ Puis ouvrir **http://localhost:5173/**.
 | `npm run dev:server` / `npm run dev:client` | Un seul des deux, dans deux terminaux séparés |
 | `npm test` | Tests unitaires (serveur + client) |
 | `npm run e2e` | Test de bout en bout : 2 utilisateurs, droits, partage, persistance |
-| `npm run smoke` | Test des pages dans un navigateur simulé (jsdom) |
+| `npm run smoke` | Test rapide des pages dans un navigateur simulé (jsdom) |
+| `npm run browser` | **Test dans un vrai Chromium** (Playwright) : dessine avec chaque outil, lit la console du navigateur |
 | `npm run load` | Test de charge : 6 participants simultanés |
 | `npm run build` | Compile le client dans `client/dist/` |
 | `npm start` | Serveur seul, qui sert aussi le client compilé (mode production) |
 
-Les tests `e2e`, `smoke` et `load` ont besoin que le serveur tourne
-(`npm run dev:server` dans un autre terminal).
+Les tests `e2e`, `smoke`, `browser` et `load` ont besoin que le projet tourne
+(`npm run dev` dans un autre terminal).
+
+Pour `npm run browser`, télécharger Chromium une seule fois :
+`npx playwright install chromium`.
 
 ---
 

@@ -252,10 +252,16 @@ Pour arrêter : `Ctrl + C` dans le terminal.
 |---|---|
 | `npm test` | Tests unitaires (serveur + client) |
 | `npm run e2e` | Test complet à 2 utilisateurs |
-| `npm run smoke` | Test des pages dans un navigateur simulé |
+| `npm run smoke` | Test rapide des pages dans un navigateur simulé |
+| `npm run browser` | **Test dans un vrai Chromium** — celui qui fait foi |
 | `npm run load` | Test de charge à 6 participants |
 | `npm run build` | Compile le client pour la mise en ligne |
 | `npm start` | Serveur seul, servant le client compilé (mode production) |
 
-⚠️ `e2e`, `smoke` et `load` ont besoin que le serveur tourne :
-lancer `npm run dev:server` dans un autre terminal.
+⚠️ `e2e`, `smoke`, `browser` et `load` ont besoin que le projet tourne :
+lancer `npm run dev` dans un autre terminal.
+Pour `browser`, télécharger Chromium une fois : `npx playwright install chromium`.
+
+⚠️ **Leçon retenue (entrée 3 du journal)** : jsdom ne calcule aucune mise en
+page. Tout ce qui touche à la **taille**, à la **superposition** ou à la
+**priorité des règles CSS** doit être vérifié avec `npm run browser`.

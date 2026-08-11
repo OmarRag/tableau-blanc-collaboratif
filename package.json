@@ -14,11 +14,13 @@
     "test": "npm --prefix server test && npm --prefix client test",
     "e2e": "node scripts/e2e.js",
     "smoke": "node scripts/smoke-home.js && node scripts/smoke-dom.js",
-    "load": "node scripts/load-test.js"
+    "load": "node scripts/load-test.js",
+    "browser": "node scripts/browser-test.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
     "jsdom": "^30.0.1",
+    "playwright": "^1.62.1",
     "socket.io-client": "^4.8.3"
   }
 }

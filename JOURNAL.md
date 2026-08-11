@@ -20,6 +20,7 @@
 | 2 | Le temps réel | ✅ Fait |
 | 3 | Sauvegarde & rooms | ✅ Fait |
 | 4 | Comptes & partage | ✅ Fait |
+| — | Correction de 3 bugs bloquants + test navigateur réel | ✅ Fait |
 | 5 | Mise en ligne | ⏳ À faire ensemble |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
@@ -296,5 +297,105 @@ npm run dev
 ```
 
 Ouvrir **http://localhost:5173/**. Arrêter avec `Ctrl + C`.
+
+---
+
+## Entrée 3 — Trois bugs bloquants, et pourquoi les tests ne les voyaient pas
+
+**Date :** 11 août 2026
+**Étape :** correction, avant l'étape 5
+
+### Ce qui a été fait
+
+Trois bugs signalés par l'étudiant en utilisant vraiment l'application :
+
+1. **Aucun outil de dessin ne fonctionnait.** Cliquer-glisser sur le tableau
+   ne produisait rien, quel que soit l'outil.
+2. Le bouton **« Fermer »** de la fenêtre de partage ne la fermait pas.
+3. Le menu **« Exporter »** restait affiché en permanence.
+
+Les trois sont corrigés. Un quatrième niveau de test a été ajouté :
+`npm run browser`, qui pilote un **vrai Chromium** avec Playwright.
+
+### Les causes, et pourquoi elles étaient invisibles
+
+**Bug 1 — le canvas mesurait 300 × 150 pixels.**
+
+Le CSS disait :
+
+```css
+#board { position: fixed; inset: 0; }
+```
+
+Sur une `<div>`, `inset: 0` suffit à occuper tout l'écran. Mais un `<canvas>`
+est un **élément remplacé** (comme `<img>` ou `<video>`) : sa taille
+automatique est sa taille *intrinsèque*, soit 300 × 150 pixels. Le canvas
+restait donc un petit rectangle en haut à gauche, invisible car blanc sur
+blanc, et **tous les clics passaient à côté**.
+
+*Correction :* ajouter `width: 100%; height: 100%`.
+
+**Bugs 2 et 3 — l'attribut `hidden` était neutralisé par notre propre CSS.**
+
+Le navigateur applique l'attribut HTML `hidden` avec une règle ordinaire :
+`[hidden] { display: none }`. Or les règles écrites dans **notre** feuille de
+style l'emportent toujours sur celles du navigateur. Comme on avait
+`.modal { display: grid }` et `.popover { display: flex }`, l'attribut `hidden`
+n'avait plus aucun effet : le JavaScript faisait bien son travail, mais rien ne
+changeait à l'écran.
+
+*Correction :* `[hidden] { display: none !important }`, plus la fermeture par
+la touche Échap et par un clic en dehors de la fenêtre.
+
+**Bug 4 (trouvé au passage) — l'outil texte perdait le focus.**
+
+Après un clic, le navigateur déplace le focus vers la page une fois nos
+gestionnaires terminés. La zone de saisie créée était donc immédiatement
+« défocalisée », donc fermée, donc vide.
+
+*Correction :* `event.preventDefault()` sur le clic, et focus donné à l'image
+suivante (`requestAnimationFrame`), le détecteur de perte de focus n'étant
+branché qu'après.
+
+### La vraie leçon : jsdom ne calcule aucune mise en page
+
+Les 28 vérifications jsdom passaient au vert **alors que l'application était
+inutilisable**. Trois angles morts, tous de la même famille :
+
+| Ce que jsdom ne fait pas | Bug non détecté |
+|---|---|
+| Calculer la taille des éléments | canvas à 300 × 150 |
+| Gérer la superposition et le routage des clics | clics perdus |
+| Appliquer la priorité « notre CSS > CSS du navigateur » | fenêtres impossibles à fermer |
+
+Pire : le test jsdom **simulait** une taille de canvas de 1280 × 720 pour
+pouvoir fonctionner, ce qui masquait précisément le bug n°1.
+
+**Règle retenue pour la suite :** tout ce qui touche à la taille, à la
+superposition ou à la priorité des règles CSS se vérifie avec
+`npm run browser`. jsdom reste utile — il est instantané et sans dépendance —
+mais **c'est Chromium qui fait foi**.
+
+### Le nouveau test navigateur
+
+`scripts/browser-test.js` (22 vérifications) reproduit le parcours complet d'un
+utilisateur : inscription, création d'un board, dessin avec les 7 outils,
+gomme, déplacement, `Ctrl+Z`, ouverture et fermeture des fenêtres. Il ajoute
+deux choses qu'aucun autre test ne faisait :
+
+- il **lit la console du navigateur** et échoue s'il y a la moindre erreur ;
+- il vérifie **quel élément se trouve réellement sous la souris** au milieu de
+  l'écran — c'est ce contrôle qui a identifié le bug du canvas en une seconde.
+
+Il enregistre aussi une capture d'écran (`scripts/derniere-capture.png`), utile
+pour la vidéo de démo et le rapport.
+
+### Comment tester
+
+```powershell
+cd C:\Stage_1337
+npm run dev            # dans un premier terminal
+npm run browser        # dans un second
+```
 
 ---

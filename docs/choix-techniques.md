@@ -215,9 +215,17 @@ l'interface. Quatre niveaux ont été mis en place :
 |---|---|---|
 | Unitaire | `npm test` | Règle de fusion, droits, mots de passe, géométrie du dessin, caméra (25 tests) |
 | Bout en bout | `npm run e2e` | 2 utilisateurs réels : comptes, temps réel, conflits, reconnexion, partage, limitation de débit (27 vérifications) |
-| Interface | `npm run smoke` | Les vraies pages exécutées dans un DOM simulé (jsdom) : on clique, on dessine à la souris, on annule (32 vérifications) |
+| Interface (rapide) | `npm run smoke` | Les vraies pages exécutées dans un DOM simulé (jsdom) : on clique, on dessine à la souris, on annule (28 vérifications) |
+| Navigateur réel | `npm run browser` | Chromium piloté par Playwright : inscription, création de board, dessin avec les 7 outils, fenêtres, **lecture de la console** (22 vérifications) |
 | Charge | `npm run load` | 6 participants, 240 formes : latence, convergence, aucune perte |
 
-Le test d'interface est le plus inhabituel : jsdom ne sait pas dessiner, on lui
-fournit donc un faux contexte 2D qui **compte les appels de dessin**. On peut
-ainsi affirmer « le rectangle a bien été tracé » sans écran.
+Le test jsdom fournit un faux contexte 2D qui **compte les appels de dessin** :
+on peut ainsi affirmer « le rectangle a bien été tracé » sans écran. Il est
+rapide et sans dépendance lourde.
+
+**Mais jsdom ne calcule aucune mise en page.** Il ne connaît ni la taille réelle
+des éléments, ni leur superposition, ni la priorité entre la feuille de style du
+projet et celle du navigateur. Deux bugs bloquants sont passés à travers pour
+cette raison exacte (voir `JOURNAL.md`, entrée 3) : un canvas resté à 300 × 150
+pixels dans un coin, et des fenêtres impossibles à fermer. **Le test Chromium
+fait donc autorité** ; jsdom n'est qu'un filet de sécurité rapide.
