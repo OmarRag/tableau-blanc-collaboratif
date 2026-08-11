@@ -1,0 +1,20 @@
+# Dépendances installées par npm (jamais versionnées : elles se réinstallent
+# avec « npm install » à partir de package.json)
+node_modules/
+
+# Fichiers produits par la compilation
+dist/
+
+# Base de données locale (SQLite)
+server/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Variables d'environnement (mots de passe, clés secrètes)
+.env
+.env.local
+
+# Fichiers système Windows / macOS
+Thumbs.db
+.DS_Store
