@@ -6,22 +6,27 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { shouldApply } from "../../shared/merge.js";
 
 const tempDb = path.join(os.tmpdir(), `whiteboard-test-${process.pid}.db`);
 process.env.DB_FILE = tempDb;
 process.env.SESSION_SECRET = "secret-de-test";
+delete process.env.DATABASE_URL; // on force SQLite, même si la variable traîne
 
 // Import dynamique : la configuration doit être lue APRÈS avoir fixé DB_FILE.
-let auth, boards, permissions, realtime;
+let auth, boards, permissions, realtime, db;
 
 before(async () => {
+  db = await import("../src/db.js");
+  await db.initDb();
   auth = await import("../src/auth.js");
   boards = await import("../src/boards.js");
   permissions = await import("../src/permissions.js");
   realtime = await import("../src/realtime.js");
 });
 
-after(() => {
+after(async () => {
+  await db.closeDb();
   for (const suffix of ["", "-wal", "-shm"]) {
     try { fs.unlinkSync(tempDb + suffix); } catch { /* déjà supprimé */ }
   }
@@ -38,30 +43,30 @@ test("deux comptes avec le même mot de passe ont deux empreintes différentes",
   assert.notEqual(auth.hashPassword("identique"), auth.hashPassword("identique"));
 });
 
-test("droits sur un board privé, public, partagé et invité", () => {
-  const proprio = auth.createUser({ email: "proprio@test.fr", password: "motdepasse", name: "Proprio" });
-  const ami = auth.createUser({ email: "ami@test.fr", password: "motdepasse", name: "Ami" });
-  const inconnu = auth.createUser({ email: "inconnu@test.fr", password: "motdepasse", name: "Inconnu" });
+test("droits sur un board privé, public, partagé et invité", async () => {
+  const proprio = await auth.createUser({ email: "proprio@test.fr", password: "motdepasse", name: "Proprio" });
+  const ami = await auth.createUser({ email: "ami@test.fr", password: "motdepasse", name: "Ami" });
+  const inconnu = await auth.createUser({ email: "inconnu@test.fr", password: "motdepasse", name: "Inconnu" });
 
-  const board = boards.createBoard({ title: "Essai", ownerId: proprio.id });
-  const stored = permissions.getBoard(board.id);
+  const board = await boards.createBoard({ title: "Essai", ownerId: proprio.id });
+  const stored = await permissions.getBoard(board.id);
 
   // Privé : seul le propriétaire entre.
-  assert.equal(permissions.roleFor(stored, proprio), "owner");
-  assert.equal(permissions.roleFor(stored, inconnu), null);
-  assert.equal(permissions.roleFor(stored, null), null);
+  assert.equal(await permissions.roleFor(stored, proprio), "owner");
+  assert.equal(await permissions.roleFor(stored, inconnu), null);
+  assert.equal(await permissions.roleFor(stored, null), null);
 
   // Invitation par email en écriture.
-  boards.setMember(board.id, ami.id, "edit");
-  assert.equal(permissions.roleFor(permissions.getBoard(board.id), ami), "edit");
+  await boards.setMember(board.id, ami.id, "edit");
+  assert.equal(await permissions.roleFor(await permissions.getBoard(board.id), ami), "edit");
 
   // Lien de partage en lecture : le bon jeton donne accès, un faux non.
-  assert.equal(permissions.roleFor(stored, inconnu, stored.share_token), "view");
-  assert.equal(permissions.roleFor(stored, inconnu, "mauvais-jeton"), null);
+  assert.equal(await permissions.roleFor(stored, inconnu, stored.share_token), "view");
+  assert.equal(await permissions.roleFor(stored, inconnu, "mauvais-jeton"), null);
 
   // Board public : tout le monde peut regarder, même sans compte.
-  boards.updateBoard(board.id, { isPublic: true });
-  assert.equal(permissions.roleFor(permissions.getBoard(board.id), null), "view");
+  await boards.updateBoard(board.id, { isPublic: true });
+  assert.equal(await permissions.roleFor(await permissions.getBoard(board.id), null), "view");
 
   // …mais regarder n'est pas dessiner.
   assert.ok(!permissions.canEdit("view"));
@@ -70,35 +75,65 @@ test("droits sur un board privé, public, partagé et invité", () => {
   assert.ok(!permissions.canAdmin("edit"));
 });
 
-test("le rôle le plus fort l'emporte quand plusieurs accès se cumulent", () => {
-  const proprio = auth.createUser({ email: "p2@test.fr", password: "motdepasse", name: "P2" });
-  const ami = auth.createUser({ email: "a2@test.fr", password: "motdepasse", name: "A2" });
-  const board = boards.createBoard({ title: "Cumul", ownerId: proprio.id });
-  boards.updateBoard(board.id, { isPublic: true }); // donne "view" à tous
-  boards.setMember(board.id, ami.id, "edit"); // mais lui est invité en écriture
-  assert.equal(permissions.roleFor(permissions.getBoard(board.id), ami), "edit");
+test("le rôle le plus fort l'emporte quand plusieurs accès se cumulent", async () => {
+  const proprio = await auth.createUser({ email: "p2@test.fr", password: "motdepasse", name: "P2" });
+  const ami = await auth.createUser({ email: "a2@test.fr", password: "motdepasse", name: "A2" });
+  const board = await boards.createBoard({ title: "Cumul", ownerId: proprio.id });
+  await boards.updateBoard(board.id, { isPublic: true }); // donne "view" à tous
+  await boards.setMember(board.id, ami.id, "edit"); // mais lui est invité en écriture
+  assert.equal(await permissions.roleFor(await permissions.getBoard(board.id), ami), "edit");
 });
 
-test("une opération plus ancienne n'écrase pas une plus récente en base", () => {
-  const proprio = auth.createUser({ email: "p3@test.fr", password: "motdepasse", name: "P3" });
-  const board = boards.createBoard({ title: "Fusion", ownerId: proprio.id });
+test("une opération plus ancienne n'écrase pas une plus récente en base", async () => {
+  const proprio = await auth.createUser({ email: "p3@test.fr", password: "motdepasse", name: "P3" });
+  const board = await boards.createBoard({ title: "Fusion", ownerId: proprio.id });
   const forme = { kind: "rect", x: 0, y: 0, w: 10, h: 10, stroke: "#000" };
 
-  assert.equal(boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 5, actor: "zoe", shape: forme }), true);
+  assert.equal(await boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 5, actor: "zoe", shape: forme }), true);
   // Opération en retard : refusée.
-  assert.equal(boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 3, actor: "alex", shape: { ...forme, w: 99 } }), false);
-  assert.equal(boards.loadShapes(board.id)[0].w, 10);
+  assert.equal(await boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 3, actor: "alex", shape: { ...forme, w: 99 } }), false);
+  assert.equal((await boards.loadShapes(board.id))[0].w, 10);
 
   // Opération plus récente : acceptée.
-  assert.equal(boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 6, actor: "alex", shape: { ...forme, w: 42 } }), true);
-  assert.equal(boards.loadShapes(board.id)[0].w, 42);
+  assert.equal(await boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 6, actor: "alex", shape: { ...forme, w: 42 } }), true);
+  assert.equal((await boards.loadShapes(board.id))[0].w, 42);
 
   // Suppression : la forme disparaît de la liste mais reste connue en base
   // (« pierre tombale »), sinon une opération en retard la ferait réapparaître.
-  assert.equal(boards.applyShapeOp(board.id, { id: "s1", type: "delete", clock: 7, actor: "alex" }), true);
-  assert.equal(boards.loadShapes(board.id).length, 0);
-  assert.equal(boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 6, actor: "zoe", shape: forme }), false);
-  assert.equal(boards.loadShapes(board.id).length, 0);
+  assert.equal(await boards.applyShapeOp(board.id, { id: "s1", type: "delete", clock: 7, actor: "alex" }), true);
+  assert.equal((await boards.loadShapes(board.id)).length, 0);
+  assert.equal(await boards.applyShapeOp(board.id, { id: "s1", type: "upsert", clock: 6, actor: "zoe", shape: forme }), false);
+  assert.equal((await boards.loadShapes(board.id)).length, 0);
+});
+
+// La règle de fusion existe à deux endroits : en JavaScript dans
+// shared/merge.js (utilisée par le navigateur) et en SQL dans applyShapeOp
+// (pour être atomique côté serveur). Ce test garantit qu'elles ne divergent
+// jamais : si quelqu'un modifie l'une sans l'autre, il devient rouge.
+test("la règle SQL et la règle JavaScript donnent le même résultat", async () => {
+  const proprio = await auth.createUser({ email: "p5@test.fr", password: "motdepasse", name: "P5" });
+  const board = await boards.createBoard({ title: "Équivalence", ownerId: proprio.id });
+  const forme = { kind: "rect", x: 0, y: 0, w: 1, h: 1 };
+
+  const cas = [
+    { existante: { clock: 5, actor: "bob" }, recue: { clock: 6, actor: "alice" } }, // horloge plus grande
+    { existante: { clock: 5, actor: "bob" }, recue: { clock: 4, actor: "zoe" } },   // horloge plus petite
+    { existante: { clock: 5, actor: "bob" }, recue: { clock: 5, actor: "zoe" } },   // égalité, auteur plus grand
+    { existante: { clock: 5, actor: "bob" }, recue: { clock: 5, actor: "alice" } }, // égalité, auteur plus petit
+    { existante: { clock: 5, actor: "bob" }, recue: { clock: 5, actor: "bob" } },   // strictement identique
+  ];
+
+  for (const [index, { existante, recue }] of cas.entries()) {
+    const id = `equiv-${index}`;
+    await boards.applyShapeOp(board.id, { id, type: "upsert", shape: forme, ...existante });
+    const resultatSql = await boards.applyShapeOp(board.id, { id, type: "upsert", shape: forme, ...recue });
+    const resultatJs = shouldApply(recue, existante);
+    assert.equal(
+      resultatSql,
+      resultatJs,
+      `cas ${index} : SQL dit ${resultatSql}, JavaScript dit ${resultatJs}`
+    );
+  }
 });
 
 test("le serveur refuse les opérations mal formées", () => {
@@ -114,14 +149,14 @@ test("le serveur refuse les opérations mal formées", () => {
   assert.ok(!realtime.isValidOp({ ...valide, shape: { kind: "pen", points: new Array(30000).fill([0, 0]) } }));
 });
 
-test("le lien de partage régénéré invalide l'ancien", () => {
-  const proprio = auth.createUser({ email: "p4@test.fr", password: "motdepasse", name: "P4" });
-  const board = boards.createBoard({ title: "Rotation", ownerId: proprio.id });
+test("le lien de partage régénéré invalide l'ancien", async () => {
+  const proprio = await auth.createUser({ email: "p4@test.fr", password: "motdepasse", name: "P4" });
+  const board = await boards.createBoard({ title: "Rotation", ownerId: proprio.id });
   const ancien = board.share_token;
-  const nouveau = boards.rotateShareToken(board.id);
-  const relu = permissions.getBoard(board.id);
+  const nouveau = await boards.rotateShareToken(board.id);
+  const relu = await permissions.getBoard(board.id);
 
   assert.notEqual(ancien, nouveau);
-  assert.equal(permissions.roleFor(relu, null, ancien), null);
-  assert.equal(permissions.roleFor(relu, null, nouveau), "view");
+  assert.equal(await permissions.roleFor(relu, null, ancien), null);
+  assert.equal(await permissions.roleFor(relu, null, nouveau), "view");
 });

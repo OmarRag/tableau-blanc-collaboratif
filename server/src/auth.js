@@ -1,6 +1,6 @@
 // Comptes utilisateurs : mots de passe, sessions, cookies.
 import crypto from "node:crypto";
-import { db, now } from "./db.js";
+import { get, run, now } from "./db.js";
 import { config } from "./config.js";
 import { shortId, longToken, colorFor } from "./ids.js";
 
@@ -82,58 +82,53 @@ export function clearSessionCookie(res) {
 
 // --- Utilisateurs et sessions -------------------------------------------
 
-export function createUser({ email, password, name }) {
+export async function createUser({ email, password, name }) {
   const id = shortId(12);
   const cleanEmail = String(email).trim().toLowerCase();
   const displayName = String(name || cleanEmail.split("@")[0]).trim();
-  db.prepare(
+  await run(
     `INSERT INTO users (id, email, password_hash, name, color, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    cleanEmail,
-    hashPassword(password),
-    displayName,
-    colorFor(id),
-    now()
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, cleanEmail, hashPassword(password), displayName, colorFor(id), now()]
   );
   return getUserById(id);
 }
 
-export function getUserByEmail(email) {
-  return db
-    .prepare("SELECT * FROM users WHERE email = ?")
-    .get(String(email).trim().toLowerCase());
+export async function getUserByEmail(email) {
+  return get("SELECT * FROM users WHERE email = ?", [
+    String(email).trim().toLowerCase(),
+  ]);
 }
 
-export function getUserById(id) {
-  return db.prepare("SELECT * FROM users WHERE id = ?").get(id);
+export async function getUserById(id) {
+  return get("SELECT * FROM users WHERE id = ?", [id]);
 }
 
-export function createSession(userId) {
+export async function createSession(userId) {
   const token = longToken();
-  db.prepare(
-    "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)"
-  ).run(token, userId, now());
+  await run("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)", [
+    token,
+    userId,
+    now(),
+  ]);
   return token;
 }
 
-export function destroySession(token) {
-  if (token) db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+export async function destroySession(token) {
+  if (token) await run("DELETE FROM sessions WHERE token = ?", [token]);
 }
 
-export function userFromCookieHeader(cookieHeader) {
+export async function userFromCookieHeader(cookieHeader) {
   const raw = parseCookies(cookieHeader)[COOKIE_NAME];
   if (!raw) return null;
   const token = unsign(raw);
   if (!token) return null;
-  const row = db
-    .prepare(
-      `SELECT users.* FROM sessions
-       JOIN users ON users.id = sessions.user_id
-       WHERE sessions.token = ?`
-    )
-    .get(token);
+  const row = await get(
+    `SELECT users.* FROM sessions
+     JOIN users ON users.id = sessions.user_id
+     WHERE sessions.token = ?`,
+    [token]
+  );
   return row || null;
 }
 
@@ -143,9 +138,13 @@ export function sessionTokenFromCookieHeader(cookieHeader) {
 }
 
 /** Middleware Express : place l'utilisateur connecté dans req.user. */
-export function attachUser(req, _res, next) {
-  req.user = userFromCookieHeader(req.headers.cookie);
-  next();
+export async function attachUser(req, _res, next) {
+  try {
+    req.user = await userFromCookieHeader(req.headers.cookie);
+    next();
+  } catch (error) {
+    next(error);
+  }
 }
 
 /** Middleware Express : refuse la requête si personne n'est connecté. */

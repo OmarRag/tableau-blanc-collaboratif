@@ -21,7 +21,7 @@
 | 3 | Sauvegarde & rooms | ✅ Fait |
 | 4 | Comptes & partage | ✅ Fait |
 | — | Correction de 3 bugs bloquants + test navigateur réel | ✅ Fait |
-| 5 | Mise en ligne | ⏳ À faire ensemble |
+| 5 | Mise en ligne — code prêt (PostgreSQL + production) | 🔧 Code fait, clics à faire |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -397,5 +397,125 @@ cd C:\Stage_1337
 npm run dev            # dans un premier terminal
 npm run browser        # dans un second
 ```
+
+---
+
+## Entrée 4 — Étape 5 : préparation de la mise en ligne
+
+**Date :** 14 août 2026
+**Étape :** 5 — code prêt ; il reste les clics chez les hébergeurs.
+
+### Ce qui a été fait
+
+- **Double moteur de base de données.** Le serveur utilise PostgreSQL si la
+  variable `DATABASE_URL` est fournie, et SQLite sinon. Aucun autre réglage à
+  changer pour passer du local à la production.
+- **Serveur prêt pour l'hébergeur** : écoute de `process.env.PORT` sur
+  `0.0.0.0`, confiance au proxy HTTPS, cookies sécurisés, refus de démarrer
+  sans vrai `SESSION_SECRET`, arrêt propre sur `SIGTERM`, adresse `/healthz`.
+- **Deux nouveaux tests** : `npm run test:pg` (vrai PostgreSQL, 19
+  vérifications) et le test navigateur rejoué contre le **client compilé** en
+  mode production (22 vérifications).
+- Documentation : `docs/deploiement.md`, `server/.env.example` réécrit,
+  `README.md` mis à jour.
+
+### Les choix techniques et pourquoi
+
+**Pourquoi PostgreSQL en ligne alors que SQLite marche très bien ?**
+Render efface le disque du service à chaque redéploiement. Un fichier SQLite y
+serait perdu à chaque mise à jour du code : tous les comptes et tous les
+dessins disparaîtraient. PostgreSQL vit sur une autre machine.
+
+**Pourquoi Supabase ou Neon plutôt que la base PostgreSQL de Render ?**
+Render en propose une gratuitement, mais **elle est supprimée au bout de
+30 jours**. Supabase et Neon n'ont pas cette limite. Le stage dure 8 semaines :
+la base de Render expirerait avant la soutenance.
+
+**Pourquoi garder SQLite en local ?** Zéro installation, zéro service à
+démarrer, et les tests tournent en une seconde. Obliger à installer PostgreSQL
+sur la machine de développement compliquerait le projet sans rien apporter.
+
+**Pourquoi une couche `all` / `get` / `run` plutôt qu'un ORM ?** Un ORM (outil
+qui écrit le SQL à notre place) est une grosse boîte noire, à rebours de
+l'objectif du stage. Ici, la couche de compatibilité fait 40 lignes : les
+requêtes s'écrivent avec des `?`, traduits en `$1, $2…` pour PostgreSQL à un
+seul endroit.
+
+**Pourquoi la règle de fusion est-elle passée dans le SQL ?** C'est le point le
+plus important de cette étape. Avant, le serveur faisait « je lis la forme, je
+compare les horloges, j'écris ». Avec SQLite c'était sûr, car tout était
+instantané. Avec PostgreSQL chaque accès est **asynchrone** : deux opérations
+sur la même forme peuvent s'entrelacer, et la mauvaise version peut gagner —
+exactement le genre de perte de mise à jour que le sujet note à 25 %.
+La comparaison est donc faite maintenant dans la requête d'écriture, en une
+seule instruction atomique (`ON CONFLICT … DO UPDATE … WHERE … RETURNING`).
+Un test compare cette règle SQL à celle de `shared/merge.js` sur cinq cas,
+pour qu'elles ne divergent jamais.
+
+### Les problèmes rencontrés et comment on les a résolus
+
+- **Problème :** les dates (`Date.now()`, ~1 750 000 000 000) dépassent la
+  capacité d'un `INTEGER` PostgreSQL, limité à ~2,1 milliards.
+  **Résolu :** le schéma utilise `BIGINT` quand le moteur est PostgreSQL.
+- **Problème :** le pilote PostgreSQL renvoie les `BIGINT` sous forme de
+  **texte** (pour ne pas perdre de précision sur de très grands nombres). Les
+  dates devenaient des chaînes de caractères et les tris étaient faux.
+  **Résolu :** reconversion en nombre au démarrage
+  (`pg.types.setTypeParser`), plus un test qui vérifie le type reçu.
+- **Problème :** Render met `NODE_ENV=production`, ce qui fait sauter les
+  dépendances de développement à l'installation — donc Vite, donc la
+  compilation du client échouerait.
+  **Résolu :** `install:all` force `--include=dev` côté client.
+- **Problème :** une adresse `/api/...` inconnue renvoyait la page d'accueil en
+  HTML au lieu d'une erreur JSON, ce qui aurait donné des messages
+  incompréhensibles côté navigateur.
+  **Résolu :** une route 404 JSON avant le renvoi vers le client compilé.
+- **Problème :** impossible de tester PostgreSQL sans compte chez un hébergeur
+  ni Docker sur la machine.
+  **Résolu :** le paquet `embedded-postgres` télécharge les binaires officiels
+  de PostgreSQL et démarre une base réelle dans un dossier temporaire, effacée
+  à la fin. Le test tourne sur **PostgreSQL 18.4**, pas sur une imitation.
+
+### Comment lancer le projet
+
+Inchangé en local (`npm run dev`). Deux vérifications supplémentaires :
+
+```powershell
+npm run test:pg        # le serveur sur un vrai PostgreSQL
+npm run build          # puis npm start, et npm run browser
+```
+
+---
+
+### Ajout à l'entrée 4 — un dernier problème trouvé en enchaînant les tests
+
+**Symptôme :** chaque script de test passait au vert isolément, mais
+`npm run smoke` échouait systématiquement quand il était lancé **juste après**
+`npm run e2e`.
+
+**Cause :** la limitation de débit faisait exactement son travail. Le seau à
+jetons des connexions contient 10 jetons et se remplit d'un jeton toutes les
+10 secondes. Le test de rafale de `e2e` le vide volontairement, et les scripts
+suivants — venant de la même adresse IP — étaient refusés pendant deux minutes.
+Le vrai défaut n'était donc pas la limitation, mais le fait qu'elle était
+**écrite en dur dans le code** : impossible à ajuster sans modifier `routes.js`.
+
+**Résolu en deux temps :**
+
+1. Les seuils passent en variables d'environnement
+   (`RATE_LIMIT_API_CAPACITY`, `RATE_LIMIT_API_REFILL`,
+   `RATE_LIMIT_AUTH_CAPACITY`, `RATE_LIMIT_AUTH_REFILL`). Les valeurs par
+   défaut restent celles de la production. En local, `.env` assouplit
+   uniquement la vitesse de recharge des connexions. C'est aussi ce que le
+   sujet demande : « configuration par variables d'environnement ».
+2. Le test de rafale de `e2e` joue désormais l'attaquant depuis `127.0.0.1`
+   au lieu de `localhost` (`::1`) — deux adresses différentes, donc deux seaux
+   différents. Une vérification supplémentaire confirme au passage que le
+   blocage **ne touche que l'attaquant** et laisse passer les autres
+   utilisateurs, ce qui n'était pas testé jusque-là.
+
+**Leçon :** un test qui passe seul mais échoue en série révèle souvent un
+couplage caché. Ici, la suite complète est maintenant vérifiée enchaînée, et
+plus seulement script par script.
 
 ---

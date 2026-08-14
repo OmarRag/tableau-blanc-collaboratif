@@ -6,7 +6,8 @@ autres voient le trait apparaître en direct, et le dessin est sauvegardé.
 Projet de stage — 8 semaines. Voir [`SUBJECT.pdf`](SUBJECT.pdf) pour le sujet
 officiel, [`JOURNAL.md`](JOURNAL.md) pour le carnet de bord et
 [`docs/choix-techniques.md`](docs/choix-techniques.md) pour la justification
-détaillée des choix d'architecture.
+détaillée des choix d'architecture et
+[`docs/deploiement.md`](docs/deploiement.md) pour la mise en ligne.
 
 ---
 
@@ -36,6 +37,7 @@ Puis ouvrir **http://localhost:5173/**.
 | `npm run smoke` | Test rapide des pages dans un navigateur simulé (jsdom) |
 | `npm run browser` | **Test dans un vrai Chromium** (Playwright) : dessine avec chaque outil, lit la console du navigateur |
 | `npm run load` | Test de charge : 6 participants simultanés |
+| `npm run test:pg` | Vérifie le serveur sur un **vrai PostgreSQL** temporaire (le moteur utilisé en ligne) |
 | `npm run build` | Compile le client dans `client/dist/` |
 | `npm start` | Serveur seul, qui sert aussi le client compilé (mode production) |
 
@@ -90,7 +92,8 @@ boards publics ou privés, invitation par email ou par lien, avec droits
 │  realtime.js    Socket.IO, une « room » par board │
 │  permissions.js qui a le droit de quoi            │
 │  boards.js      lecture/écriture des formes       │
-│  db.js          SQLite (node:sqlite)              │
+│  db.js          SQLite en local / PostgreSQL en   │
+│                 ligne — même interface            │
 └───────────────────────────────────────────────────┘
 
 shared/merge.js  ← la règle de fusion, utilisée des DEUX côtés
@@ -104,11 +107,23 @@ règle, sinon ils divergeraient.
 
 ```
 client/    interface (Vite, JavaScript sans framework)
-server/    serveur Node.js (Express + Socket.IO + SQLite)
+server/    serveur Node.js (Express + Socket.IO + SQLite/PostgreSQL)
 shared/    code commun aux deux
-scripts/   tests de bout en bout, tests de page, test de charge
-docs/      document de choix techniques
+scripts/   tests de bout en bout, tests de page, test de charge, test PostgreSQL
+docs/      choix techniques + guide de déploiement
 ```
+
+### La base de données : un seul interrupteur
+
+`server/src/db.js` expose trois fonctions (`all`, `get`, `run`). Le reste du
+serveur ne sait pas quel moteur tourne dessous :
+
+| `DATABASE_URL` | Moteur utilisé | Usage |
+|---|---|---|
+| absente | **SQLite** (`node:sqlite`, intégré à Node) | développement local |
+| présente | **PostgreSQL** (`pg`) | site en ligne |
+
+Détails et justification dans [`docs/deploiement.md`](docs/deploiement.md).
 
 ---
 
@@ -120,7 +135,7 @@ docs/      document de choix techniques
 sequenceDiagram
     participant A as Alice (navigateur)
     participant S as Serveur
-    participant DB as SQLite
+    participant DB as Base de données
     participant B as Bob (navigateur)
 
     Note over A: Alice trace un rectangle

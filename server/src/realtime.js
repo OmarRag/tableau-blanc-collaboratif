@@ -18,22 +18,37 @@ const MAX_CURSORS_PER_SECOND = 40;
 
 export function setupRealtime(httpServer) {
   const io = new Server(httpServer, {
-    cors: { origin: config.clientOrigin, credentials: true },
+    // En production, la page et la connexion temps réel partent du même
+    // domaine : aucune autorisation d'origine croisée n'est nécessaire, et en
+    // demander une ouvrirait inutilement le serveur. En développement
+    // seulement, la page vient de Vite (port 5173).
+    cors: config.isProduction
+      ? false
+      : { origin: config.clientOrigin, credentials: true },
     // Si la connexion tombe, Socket.IO retente tout seul côté client.
     pingTimeout: 20000,
   });
 
-  io.use((socket, next) => {
-    const { boardId, shareToken } = socket.handshake.auth || {};
-    const board = getBoard(boardId);
-    const user = userFromCookieHeader(socket.handshake.headers.cookie);
-    const role = roleFor(board, user, shareToken || null);
+  io.use(async (socket, next) => {
+    try {
+      await authenticate(socket);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
 
-    if (!canView(role)) return next(new Error("Accès refusé à ce board."));
+  async function authenticate(socket) {
+    const { boardId, shareToken } = socket.handshake.auth || {};
+    const board = await getBoard(boardId);
+    const user = await userFromCookieHeader(socket.handshake.headers.cookie);
+    const role = await roleFor(board, user, shareToken || null);
+
+    if (!canView(role)) throw new Error("Accès refusé à ce board.");
 
     // Quelqu'un qui arrive par un lien de partage devient membre du board.
     if (user && shareToken && board.share_token === shareToken && board.owner_id !== user.id) {
-      setMember(board.id, user.id, board.share_role);
+      await setMember(board.id, user.id, board.share_role);
     }
 
     socket.data.boardId = board.id;
@@ -45,17 +60,16 @@ export function setupRealtime(httpServer) {
       ? { id: user.id, name: user.name, color: user.color, guest: false }
       : { id: `guest-${shortId(6)}`, name: `Invité ${shortId(3)}`, color: colorFor(socket.id), guest: true };
     socket.data.opBudget = { ops: MAX_OPS_PER_SECOND, cursors: MAX_CURSORS_PER_SECOND, last: Date.now() };
-    next();
-  });
+  }
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     const boardId = socket.data.boardId;
     socket.join(boardId);
 
     // 1) On envoie au nouvel arrivant l'état complet du board.
     socket.emit("init", {
-      shapes: loadShapes(boardId),
-      clock: maxClock(boardId),
+      shapes: await loadShapes(boardId),
+      clock: await maxClock(boardId),
       me: { ...socket.data.identity, role: socket.data.role, socketId: socket.id },
       peers: peersOf(io, boardId, socket.id),
     });
@@ -66,7 +80,7 @@ export function setupRealtime(httpServer) {
       ...socket.data.identity,
     });
 
-    socket.on("shape:op", (op, ack) => {
+    socket.on("shape:op", async (op, ack) => {
       if (!canEdit(socket.data.role)) return ack?.({ ok: false, error: "lecture seule" });
       if (!allow(socket, "ops")) return ack?.({ ok: false, error: "trop d'opérations" });
       if (!isValidOp(op)) return ack?.({ ok: false, error: "opération invalide" });
@@ -81,18 +95,24 @@ export function setupRealtime(httpServer) {
         shape: op.type === "delete" ? null : op.shape,
       };
 
-      const applied = applyShapeOp(boardId, clean);
-      // On accuse toujours réception (même si l'opération a perdu) pour que le
-      // client puisse vider sa file d'attente.
-      ack?.({ ok: true, applied });
-      if (applied) {
-        touchBoard(boardId);
-        socket.to(boardId).emit("shape:op", clean);
-      } else {
-        // L'opération a perdu : on renvoie à l'expéditeur la version qui gagne
-        // pour qu'il se resynchronise immédiatement.
-        const winners = loadShapes(boardId).filter((s) => s.id === clean.id);
-        socket.emit("shape:resync", { id: clean.id, shape: winners[0] || null });
+      try {
+        const applied = await applyShapeOp(boardId, clean);
+        // On accuse toujours réception (même si l'opération a perdu) pour que
+        // le client puisse vider sa file d'attente.
+        ack?.({ ok: true, applied });
+        if (applied) {
+          await touchBoard(boardId);
+          socket.to(boardId).emit("shape:op", clean);
+        } else {
+          // L'opération a perdu : on renvoie à l'expéditeur la version qui
+          // gagne pour qu'il se resynchronise immédiatement.
+          const shapes = await loadShapes(boardId);
+          const gagnante = shapes.find((shape) => shape.id === clean.id);
+          socket.emit("shape:resync", { id: clean.id, shape: gagnante || null });
+        }
+      } catch (error) {
+        console.error("[temps réel] échec de l'enregistrement d'une forme :", error);
+        ack?.({ ok: false, error: "erreur serveur" });
       }
     });
 

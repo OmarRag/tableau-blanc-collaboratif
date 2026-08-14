@@ -4,8 +4,11 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Tableau blanc collaboratif en temps réel",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
-    "install:all": "npm --prefix client install && npm --prefix server install",
+    "install:all": "npm --prefix client install --include=dev && npm --prefix server install",
     "dev": "concurrently -n serveur,client -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
@@ -15,10 +18,12 @@
     "e2e": "node scripts/e2e.js",
     "smoke": "node scripts/smoke-home.js && node scripts/smoke-dom.js",
     "load": "node scripts/load-test.js",
-    "browser": "node scripts/browser-test.js"
+    "browser": "node scripts/browser-test.js",
+    "test:pg": "node scripts/test-postgres.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
+    "embedded-postgres": "^18.4.0-beta.17",
     "jsdom": "^30.0.1",
     "playwright": "^1.62.1",
     "socket.io-client": "^4.8.3"

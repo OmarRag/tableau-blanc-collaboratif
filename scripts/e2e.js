@@ -221,10 +221,23 @@ async function main() {
   check("un board public est visible sans compte", publique.status === 200 && publique.data.role === "view");
 
   // --- Limitation de débit ----------------------------------------------
+  //
+  // Ce test vide volontairement le « seau à jetons » des tentatives de
+  // connexion. Comme le seau se remplit lentement (1 jeton toutes les 10 s —
+  // c'est justement le but), tout ce qui vient de la même adresse IP dans les
+  // deux minutes suivantes serait refusé, y compris les autres scripts de
+  // test lancés à la suite.
+  //
+  // On joue donc l'attaquant depuis une AUTRE adresse : « 127.0.0.1 » et
+  // « localhost » (qui vaut « ::1 ») sont deux adresses différentes pour le
+  // serveur, donc deux seaux différents. C'est fidèle à la réalité — un
+  // attaquant n'est pas au même endroit que les utilisateurs normaux — et
+  // cela évite qu'un test en gêne un autre.
   section("9. Limitation de débit");
+  const attaquant = createHttpClient(BASE.replace("localhost", "127.0.0.1"));
   let bloque = false;
   for (let i = 0; i < 40; i++) {
-    const essai = await visiteur.call(
+    const essai = await attaquant.call(
       "POST",
       "/api/auth/login",
       { email: "personne@test.fr", password: "x" },
@@ -236,6 +249,10 @@ async function main() {
     }
   }
   check("le serveur bloque les tentatives de connexion en rafale (429)", bloque);
+  check(
+    "le blocage ne touche que l'attaquant, pas les autres utilisateurs",
+    (await visiteur.call("GET", "/api/auth/me")).status === 200
+  );
 
   // --- Nettoyage --------------------------------------------------------
   socketA2.close();

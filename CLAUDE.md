@@ -107,9 +107,11 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
       Boards enregistrés en base, URL unique par board, public/privé.
 - [x] **Étape 4 — Comptes & partage.** ✅ *11 août 2026*
       Inscription/connexion, page « mes boards », partage avec droits.
-- [ ] **Étape 5 — Mise en ligne.** ← **prochaine étape, à faire ensemble**
-      Déploiement sur une URL publique HTTPS. Nécessite les comptes de
-      l'étudiant chez un hébergeur.
+- [~] **Étape 5 — Mise en ligne.** ← **en cours**
+      Le **code est prêt** (PostgreSQL, port et cookies de production,
+      documentation). Il reste les **clics** chez GitHub, Supabase/Neon et
+      Render, qui demandent les comptes de l'étudiant.
+      Guide complet : [`docs/deploiement.md`](docs/deploiement.md).
 - [ ] **Étape 6 — Finitions.**
       Vidéo de démo (~3 min), rapport de stage.
       *(Les tests automatiques et la documentation technique sont déjà faits.)*
@@ -137,10 +139,11 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 | Serveur | **Node.js + Express 5** | Le plus simple et le plus courant. Même langage des deux côtés. |
 | Temps réel | **Socket.IO** | Fournit la reconnexion automatique, les « rooms » et les accusés de réception — les trois nous servent. |
 | Synchro | **LWW + horloge de Lamport**, par forme | Option (A). 30 lignes, entièrement compréhensible. Autorisé explicitement par le sujet. Yjs a été écarté : boîte noire pour un débutant. |
-| Base de données | **SQLite** via `node:sqlite` | Intégré à Node 24 : zéro dépendance, zéro compilation (contrairement à `better-sqlite3`). Un seul fichier. |
+| Base de données (local) | **SQLite** via `node:sqlite` | Intégré à Node 24 : zéro dépendance, zéro compilation (contrairement à `better-sqlite3`). Un seul fichier. |
+| Base de données (en ligne) | **PostgreSQL** via `pg` | Render efface le disque à chaque redéploiement : un fichier SQLite y serait perdu. Bascule automatique dès que `DATABASE_URL` existe. |
 | Comptes | **session en base + cookie signé**, mot de passe **scrypt** | Un JWT ne peut pas être révoqué ; une session en base se supprime à la déconnexion. |
 | Tests | `node --test` (intégré) + **jsdom** | Aucune dépendance de test lourde. jsdom permet de tester les pages sans navigateur. |
-| Hébergement | à décider à l'étape 5 | Contrainte : doit supporter les WebSockets. |
+| Hébergement | **Render** (offre gratuite) + **Supabase/Neon** pour la base | Render gère les WebSockets et le HTTPS. Sa base PostgreSQL gratuite étant supprimée après 30 jours, la base vient d'ailleurs. Détails : [`docs/deploiement.md`](docs/deploiement.md). |
 
 ### Questions techniques ouvertes
 
@@ -255,6 +258,7 @@ Pour arrêter : `Ctrl + C` dans le terminal.
 | `npm run smoke` | Test rapide des pages dans un navigateur simulé |
 | `npm run browser` | **Test dans un vrai Chromium** — celui qui fait foi |
 | `npm run load` | Test de charge à 6 participants |
+| `npm run test:pg` | Vérifie le serveur sur un **vrai PostgreSQL** temporaire |
 | `npm run build` | Compile le client pour la mise en ligne |
 | `npm start` | Serveur seul, servant le client compilé (mode production) |
 

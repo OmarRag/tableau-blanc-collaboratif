@@ -6,7 +6,11 @@ import express from "express";
 import { config } from "./config.js";
 import { api } from "./routes.js";
 import { setupRealtime } from "./realtime.js";
-import "./db.js";
+import { initDb, dialect, closeDb } from "./db.js";
+
+// La base doit être prête AVANT d'accepter la première requête : avec
+// PostgreSQL, la connexion et la création des tables prennent un instant.
+await initDb();
 
 const app = express();
 
@@ -31,7 +35,15 @@ if (!config.isProduction) {
 
 app.use("/api", api);
 
+// Render interroge cette adresse pour savoir si le service est vivant.
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
+
+// Une adresse « /api/... » inconnue doit répondre en JSON, et non renvoyer la
+// page d'accueil : sinon le client recevrait du HTML là où il attend des
+// données, et afficherait un message d'erreur incompréhensible.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Route inconnue." });
+});
 
 // --- Fichiers du client (production uniquement) --------------------------
 if (fs.existsSync(config.clientDist)) {
@@ -51,10 +63,28 @@ if (fs.existsSync(config.clientDist)) {
 const server = http.createServer(app);
 setupRealtime(server);
 
-server.listen(config.port, () => {
-  console.log(`[serveur] écoute sur http://localhost:${config.port}`);
-  console.log(`[serveur] base de données : ${config.dbFile}`);
+// Render fournit le port à écouter et attend l'adresse 0.0.0.0 (et non
+// « localhost », qui n'accepterait que les connexions venant de la machine
+// elle-même : l'hébergeur ne verrait jamais le serveur démarrer).
+server.listen(config.port, "0.0.0.0", () => {
+  console.log(`[serveur] écoute sur le port ${config.port}`);
+  console.log(
+    `[serveur] base de données : ${
+      dialect === "postgres" ? "PostgreSQL (DATABASE_URL)" : config.dbFile
+    }`
+  );
   if (!fs.existsSync(config.clientDist)) {
     console.log("[serveur] client non compilé : utilise « npm run dev » côté client.");
   }
 });
+
+// Render envoie SIGTERM avant d'arrêter un service : on ferme proprement la
+// base pour ne pas laisser de connexion PostgreSQL ouverte dans le vide.
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, async () => {
+    console.log(`[serveur] arrêt demandé (${signal})`);
+    server.close();
+    await closeDb();
+    process.exit(0);
+  });
+}

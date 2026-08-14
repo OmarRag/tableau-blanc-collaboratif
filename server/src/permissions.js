@@ -5,13 +5,13 @@
 //   "edit"  → lire et dessiner
 //   "view"  → lire seulement
 //   null    → aucun accès
-import { db } from "./db.js";
+import { get } from "./db.js";
 
 export const RANK = { view: 1, edit: 2, owner: 3 };
 
-export function getBoard(boardId) {
+export async function getBoard(boardId) {
   // On force une chaîne : un identifiant absent ferait planter la requête.
-  return db.prepare("SELECT * FROM boards WHERE id = ?").get(String(boardId ?? ""));
+  return get("SELECT * FROM boards WHERE id = ?", [String(boardId ?? "")]);
 }
 
 /**
@@ -21,9 +21,9 @@ export function getBoard(boardId) {
  * @param {object|null} board  la ligne du board
  * @param {object|null} user   l'utilisateur connecté (ou null si visiteur)
  * @param {string|null} shareToken  jeton du lien de partage (paramètre ?k=)
- * @returns {"owner"|"edit"|"view"|null}
+ * @returns {Promise<"owner"|"edit"|"view"|null>}
  */
-export function roleFor(board, user, shareToken = null) {
+export async function roleFor(board, user, shareToken = null) {
   if (!board) return null;
   let best = null;
   const keep = (role) => {
@@ -33,9 +33,10 @@ export function roleFor(board, user, shareToken = null) {
   if (user && board.owner_id === user.id) keep("owner");
 
   if (user) {
-    const member = db
-      .prepare("SELECT role FROM board_members WHERE board_id = ? AND user_id = ?")
-      .get(board.id, user.id);
+    const member = await get(
+      "SELECT role FROM board_members WHERE board_id = ? AND user_id = ?",
+      [board.id, user.id]
+    );
     if (member) keep(member.role);
   }
 
