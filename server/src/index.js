@@ -5,6 +5,7 @@ import path from "node:path";
 import express from "express";
 import { config } from "./config.js";
 import { api } from "./routes.js";
+import { googleAuth } from "./oauthGoogle.js";
 import { setupRealtime } from "./realtime.js";
 import { initDb, dialect, closeDb } from "./db.js";
 
@@ -34,6 +35,11 @@ if (!config.isProduction) {
 }
 
 app.use("/api", api);
+
+// Connexion avec Google. Ce chemin n'est PAS sous /api : c'est le navigateur
+// lui-même qui y navigue (aller chez Google, puis en revenir), ce ne sont pas
+// des appels de données.
+app.use("/auth", googleAuth);
 
 // Render interroge cette adresse pour savoir si le service est vivant.
 app.get("/healthz", (_req, res) => res.json({ ok: true }));

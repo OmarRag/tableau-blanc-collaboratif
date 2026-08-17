@@ -111,12 +111,44 @@ function schemaSql() {
   `;
 }
 
+// --- Évolutions du schéma (« migrations ») --------------------------------
+//
+// La base en ligne contient déjà de vrais comptes : on ne peut pas recréer les
+// tables. Quand une colonne s'ajoute plus tard, on la rajoute sans toucher aux
+// données existantes. Cette fonction ne fait rien si la colonne est déjà là,
+// donc on peut la lancer à chaque démarrage sans risque.
+async function addColumnIfMissing(table, column, type) {
+  if (dialect === "postgres") {
+    await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+    return;
+  }
+  // SQLite ne connaît pas « IF NOT EXISTS » pour les colonnes : on regarde
+  // d'abord la liste des colonnes existantes.
+  const columns = sqliteDb.prepare(`PRAGMA table_info(${table})`).all();
+  if (columns.some((c) => c.name === column)) return;
+  sqliteDb.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+
+async function migrate() {
+  // Identifiant du compte Google relié (vide pour les comptes email).
+  await addColumnIfMissing("users", "google_id", "TEXT");
+  // Un même compte Google ne peut être relié qu'à un seul utilisateur.
+  // Les valeurs vides ne gênent pas : les deux moteurs autorisent plusieurs
+  // NULL dans un index unique.
+  await query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_id)");
+}
+
 let initialised = null;
 
 /** À appeler une fois au démarrage, avant d'accepter la moindre requête. */
 export function initDb() {
   if (initialised) return initialised;
-  initialised = dialect === "postgres" ? initPostgres() : initSqlite();
+  initialised = (dialect === "postgres" ? initPostgres() : initSqlite()).then(
+    async (result) => {
+      await migrate();
+      return result;
+    }
+  );
   return initialised;
 }
 

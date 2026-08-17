@@ -22,6 +22,7 @@
 | 4 | Comptes & partage | ✅ Fait |
 | — | Correction de 3 bugs bloquants + test navigateur réel | ✅ Fait |
 | 5 | Mise en ligne | ✅ Fait — site en ligne |
+| — | Connexion avec Google (OAuth 2.0) | ✅ Fait |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -592,5 +593,113 @@ curl https://tableau-blanc-collaboratif.onrender.com/healthz
 ```
 
 Réponse attendue : `{"ok":true}`.
+
+---
+
+## Entrée 6 — Connexion avec Google (OAuth 2.0)
+
+**Date :** 17 août 2026
+**Étape :** ajout demandé après l'étape 5
+
+### Ce qui a été fait
+
+Un bouton **« Continuer avec Google »** s'ajoute sous le formulaire de
+connexion. L'email/mot de passe existant n'a pas bougé.
+
+- `server/src/oauthGoogle.js` — le trajet complet, en ~130 lignes.
+- `server/src/auth.js` — `findOrCreateGoogleUser` : crée le compte, ou le
+  relie à un compte email déjà existant.
+- `server/src/db.js` — nouvelle colonne `google_id` ajoutée **sans toucher aux
+  données existantes** (la base en ligne contient de vrais comptes).
+- `client/src/pages/home.js` — le bouton, affiché seulement si le serveur
+  annonce que Google est configuré.
+- `scripts/test-google.js` — 24 vérifications, **sans compte Google**.
+
+### Comment ça marche, en quatre temps
+
+1. On clique sur le bouton → le navigateur part chez Google avec notre
+   identifiant d'application.
+2. La personne choisit son compte chez Google et accepte.
+3. Google la renvoie sur `/auth/google/callback` avec un **code** à usage
+   unique. Notre serveur échange ce code contre un jeton, en coulisses : c'est
+   là que le SECRET est utilisé, et il ne quitte jamais le serveur.
+4. Le jeton contient l'identité (identifiant Google, email, nom). On crée ou
+   on retrouve le compte, puis on pose **notre cookie de session habituel**.
+   Tout le reste du site ne voit aucune différence.
+
+Point important : **nous ne voyons jamais le mot de passe Google** de la
+personne. C'est tout l'intérêt d'OAuth.
+
+### Les choix techniques et pourquoi
+
+**Pas de bibliothèque (ni Passport, ni google-auth-library).** Le trajet
+ci-dessus se résume à une redirection, une requête HTTP et un décodage. Passport
+demanderait d'apprendre son système de « stratégies », de « sérialisation » et
+de sessions, pour exactement le même résultat — et masquerait justement ce
+qu'il faut comprendre.
+
+**La signature du jeton n'est pas vérifiée, volontairement.** Un `id_token`
+est signé par Google et cette signature sert à prouver qu'il n'a pas été
+falsifié en chemin. Ici, le jeton arrive **directement du serveur de Google,
+en HTTPS, dans la réponse à notre propre requête** : personne n'a pu le
+modifier au passage. La documentation de Google indique explicitement que la
+vérification est inutile dans ce cas précis. Elle serait indispensable si le
+jeton nous était transmis par le navigateur.
+
+**Un « state » anti-fraude.** Avant de partir chez Google, on tire une valeur
+au hasard, rangée dans un cookie, et Google nous la retourne. Si les deux ne
+correspondent pas, on refuse. Cela empêche une attaque où quelqu'un vous ferait
+terminer **sa** connexion à votre place, vous faisant travailler sur son compte
+sans le savoir.
+
+**L'email doit être vérifié par Google.** Sans ce contrôle, n'importe qui
+pourrait créer un compte Google portant l'adresse de quelqu'un d'autre et,
+grâce à la liaison par email, récupérer ses boards. Un test couvre ce cas.
+
+**L'adresse de retour est reconstruite à partir de la requête** plutôt
+qu'écrite dans une variable. Elle vaut ainsi automatiquement
+`http://localhost:3000/auth/google/callback` en local et
+`https://tableau-blanc-collaboratif.onrender.com/auth/google/callback` en
+ligne, sans réglage supplémentaire. Cela ne marche que parce que
+`trust proxy` est activé : sans lui, le serveur derrière Render croirait
+parler en « http » et Google refuserait l'adresse.
+
+**Les comptes Google n'ont pas de mot de passe.** La colonne `password_hash`
+ne peut pas être vide, on y range donc une valeur qui n'est pas une empreinte
+scrypt valide. Résultat : le formulaire email/mot de passe ne peut jamais
+ouvrir un compte créé via Google, même en devinant cette valeur. Deux tests
+le vérifient.
+
+### Les problèmes rencontrés et comment on les a résolus
+
+- **Problème :** comment tester sans compte Google, sans clés, et sans réseau ?
+  **Résolu :** `scripts/test-google.js` démarre un vrai serveur avec de fausses
+  clés et **intercepte l'unique appel vers Google** pour répondre à sa place.
+  Tout le reste est le vrai code : redirection, cookie `state`, création du
+  compte, liaison par email, pose du cookie de session. 24 vérifications,
+  dont les cas qui doivent échouer (state inventé, code périmé, email non
+  vérifié, clic sur « Annuler »).
+- **Problème :** ce test enchaîne une quinzaine de connexions en une seconde et
+  se bloquait lui-même sur la limitation de débit.
+  **Résolu :** il desserre le plafond par variable d'environnement — possible
+  seulement depuis que ces seuils sont configurables (entrée 4).
+- **Vérification finale dans un vrai navigateur :** le bouton s'affiche, porte
+  le bon lien, et le clic mène bien à `accounts.google.com`. Contrôlé avec
+  Chromium, clés factices, aucune erreur en console.
+
+### Comment lancer le projet
+
+Inchangé. Pour activer Google en local, ajouter dans `server/.env` :
+
+```
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+```
+
+Sans ces lignes, le bouton ne s'affiche pas et rien d'autre ne change.
+
+```powershell
+npm run test:google    # 24 vérifications, sans compte Google
+```
 
 ---

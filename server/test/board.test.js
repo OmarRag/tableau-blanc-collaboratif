@@ -14,7 +14,7 @@ process.env.SESSION_SECRET = "secret-de-test";
 delete process.env.DATABASE_URL; // on force SQLite, même si la variable traîne
 
 // Import dynamique : la configuration doit être lue APRÈS avoir fixé DB_FILE.
-let auth, boards, permissions, realtime, db;
+let auth, boards, permissions, realtime, db, google;
 
 before(async () => {
   db = await import("../src/db.js");
@@ -23,6 +23,7 @@ before(async () => {
   boards = await import("../src/boards.js");
   permissions = await import("../src/permissions.js");
   realtime = await import("../src/realtime.js");
+  google = await import("../src/oauthGoogle.js");
 });
 
 after(async () => {
@@ -147,6 +148,87 @@ test("le serveur refuse les opérations mal formées", () => {
   assert.ok(!realtime.isValidOp({ ...valide, clock: "beaucoup" }));
   assert.ok(!realtime.isValidOp({ ...valide, shape: { kind: "virus", x: 0, y: 0 } }));
   assert.ok(!realtime.isValidOp({ ...valide, shape: { kind: "pen", points: new Array(30000).fill([0, 0]) } }));
+});
+
+// --- Connexion avec Google ------------------------------------------------
+
+/** Fabrique un faux « id_token » Google, comme celui reçu à la connexion. */
+function fauxIdToken(charge) {
+  const b64 = (objet) => Buffer.from(JSON.stringify(objet)).toString("base64url");
+  return `${b64({ alg: "RS256" })}.${b64(charge)}.signature-non-verifiee`;
+}
+
+test("l'identité est correctement extraite du jeton Google", () => {
+  const profil = google.lireIdToken(
+    fauxIdToken({ sub: "123", email: "Zoe@Gmail.com", email_verified: true, name: "Zoé" })
+  );
+  assert.equal(profil.sub, "123");
+  assert.equal(profil.email, "Zoe@Gmail.com");
+  assert.equal(profil.emailVerified, true);
+  assert.equal(profil.name, "Zoé");
+
+  // Google renvoie parfois la chaîne "true" au lieu du booléen.
+  assert.equal(
+    google.lireIdToken(fauxIdToken({ sub: "1", email: "a@b.fr", email_verified: "true" })).emailVerified,
+    true
+  );
+  assert.throws(() => google.lireIdToken("pas-un-jeton"));
+});
+
+test("un nouveau compte Google est créé, puis retrouvé la fois suivante", async () => {
+  const profil = { sub: "google-111", email: "nouveau@gmail.com", emailVerified: true, name: "Nouveau" };
+  const cree = await auth.findOrCreateGoogleUser(profil);
+  assert.equal(cree.email, "nouveau@gmail.com");
+  assert.equal(cree.name, "Nouveau");
+  assert.equal(cree.google_id, "google-111");
+
+  // Deuxième connexion : le MÊME compte, pas un doublon.
+  const relu = await auth.findOrCreateGoogleUser(profil);
+  assert.equal(relu.id, cree.id);
+
+  // Ce compte n'a pas de mot de passe : le formulaire classique ne peut pas
+  // l'ouvrir, même en devinant la valeur rangée en base.
+  assert.ok(!auth.verifyPassword("", cree.password_hash));
+  assert.ok(!auth.verifyPassword(cree.password_hash, cree.password_hash));
+});
+
+test("un compte email existant est relié au compte Google de même adresse", async () => {
+  const parMotDePasse = await auth.createUser({
+    email: "deja-la@gmail.com",
+    password: "motdepasse123",
+    name: "Déjà là",
+  });
+  const board = await boards.createBoard({ title: "Avant Google", ownerId: parMotDePasse.id });
+
+  const parGoogle = await auth.findOrCreateGoogleUser({
+    sub: "google-222",
+    email: "Deja-La@Gmail.com", // même adresse, écrite autrement
+    emailVerified: true,
+    name: "Déjà là",
+  });
+
+  // C'est bien le même compte : les boards ne sont pas perdus.
+  assert.equal(parGoogle.id, parMotDePasse.id);
+  assert.equal((await boards.listBoardsFor(parGoogle.id)).owned[0].id, board.id);
+
+  // Et le mot de passe d'origine fonctionne toujours.
+  const relu = await auth.getUserByEmail("deja-la@gmail.com");
+  assert.ok(auth.verifyPassword("motdepasse123", relu.password_hash));
+});
+
+test("une adresse Google non vérifiée est refusée", async () => {
+  // Sans ce contrôle, n'importe qui pourrait créer un compte Google portant
+  // l'adresse de quelqu'un d'autre et récupérer ses boards.
+  await assert.rejects(
+    auth.findOrCreateGoogleUser({
+      sub: "google-333",
+      email: "victime@gmail.com",
+      emailVerified: false,
+      name: "Pirate",
+    }),
+    /pas vérifiée/
+  );
+  assert.equal(await auth.getUserByEmail("victime@gmail.com"), undefined);
 });
 
 test("le lien de partage régénéré invalide l'ancien", async () => {

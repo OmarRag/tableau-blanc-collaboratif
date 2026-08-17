@@ -141,6 +141,7 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 | Base de données (local) | **SQLite** via `node:sqlite` | Intégré à Node 24 : zéro dépendance, zéro compilation (contrairement à `better-sqlite3`). Un seul fichier. |
 | Base de données (en ligne) | **PostgreSQL** via `pg` | Render efface le disque à chaque redéploiement : un fichier SQLite y serait perdu. Bascule automatique dès que `DATABASE_URL` existe. |
 | Comptes | **session en base + cookie signé**, mot de passe **scrypt** | Un JWT ne peut pas être révoqué ; une session en base se supprime à la déconnexion. |
+| Connexion Google | **OAuth 2.0 écrit à la main** (~130 lignes), sans Passport ni bibliothèque | Deux requêtes HTTP et un décodage suffisent. Passport imposerait d'apprendre son système de « stratégies » pour le même résultat. Facultatif : sans les clés, le bouton disparaît. |
 | Tests | `node --test` (intégré) + **jsdom** | Aucune dépendance de test lourde. jsdom permet de tester les pages sans navigateur. |
 | Hébergement | **Render** (offre gratuite, région Frankfurt) | Gère les WebSockets et fournit le HTTPS. |
 | Base en ligne | **Neon PostgreSQL** (offre gratuite, région Frankfurt) | Base `tableau_blanc`, *connection pooling* activé. Même région que Render pour limiter la latence. La base gratuite de Render étant supprimée après 30 jours, elle a été écartée. |
@@ -167,13 +168,14 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
 - ✅ Étape 2 — temps réel (formes + curseurs avec pseudo et couleur),
   fusion sans conflit, reconnexion sans perte.
 - ✅ Étape 3 — persistance, URL unique par board, public/privé.
-- ✅ Étape 4 — comptes, page « mes boards », partage par email et par lien
-  avec droits lecture/écriture.
+- ✅ Étape 4 — comptes (email/mot de passe **et Google**), page « mes
+  boards », partage par email et par lien avec droits lecture/écriture.
 - ✅ Étape 5 — en ligne sur Render (Frankfurt) + Neon PostgreSQL (Frankfurt),
   HTTPS, limitation de débit, configuration par variables d'environnement.
-- ✅ Tests : 26 tests unitaires, 28 vérifications de bout en bout,
-  38 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
-  PostgreSQL, test de charge à 6 participants. **Tous au vert.**
+- ✅ Tests : 30 tests unitaires, 31 vérifications de bout en bout,
+  39 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
+  PostgreSQL, 24 sur la connexion Google, test de charge à 6 participants.
+  **Tous au vert.**
 - ✅ Documentation : `README.md` (architecture + diagrammes de séquence),
   `docs/choix-techniques.md`, `docs/deploiement.md`.
 - ⏳ Reste : vidéo de démo (~3 min), rapport de stage.
@@ -271,6 +273,7 @@ Pour arrêter : `Ctrl + C` dans le terminal.
 | `npm run browser` | **Test dans un vrai Chromium** — celui qui fait foi |
 | `npm run load` | Test de charge à 6 participants |
 | `npm run test:pg` | Vérifie le serveur sur un **vrai PostgreSQL** temporaire |
+| `npm run test:google` | Vérifie la connexion Google sans compte Google |
 | `npm run build` | Compile le client pour la mise en ligne |
 | `npm start` | Serveur seul, servant le client compilé (mode production) |
 

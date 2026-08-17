@@ -88,7 +88,12 @@ api.post("/auth/logout", async (req, res) => {
 });
 
 api.get("/auth/me", (req, res) => {
-  res.json({ user: publicUser(req.user) });
+  res.json({
+    user: publicUser(req.user),
+    // Dit au navigateur quels moyens de connexion proposer. Si Google n'est
+    // pas configuré sur ce serveur, le bouton ne s'affiche pas du tout.
+    providers: { google: config.google.enabled },
+  });
 });
 
 // --- Boards --------------------------------------------------------------

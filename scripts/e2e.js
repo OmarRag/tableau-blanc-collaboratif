@@ -220,6 +220,31 @@ async function main() {
   const publique = await visiteur.call("GET", `/api/boards/${board.id}`);
   check("un board public est visible sans compte", publique.status === 200 && publique.data.role === "view");
 
+  // --- Connexion avec Google ---------------------------------------------
+  //
+  // Google n'est pas configuré sur la machine de développement (pas de
+  // GOOGLE_CLIENT_ID). On vérifie que son absence ne casse rien : le serveur
+  // annonce simplement que ce moyen de connexion n'est pas disponible, et
+  // l'email/mot de passe continue de fonctionner — ce que prouvent les
+  // sections précédentes.
+  section("9. Connexion avec Google (non configurée ici)");
+  const moyens = await visiteur.call("GET", "/api/auth/me");
+  const googleActif = moyens.data?.providers?.google === true;
+  check(
+    "le serveur annonce si la connexion Google est disponible",
+    typeof moyens.data?.providers?.google === "boolean",
+    JSON.stringify(moyens.data?.providers)
+  );
+  if (googleActif) {
+    const depart = await visiteur.call("GET", "/auth/google");
+    check("le départ vers Google redirige (302)", depart.status === 302 || depart.status === 200);
+  } else {
+    const depart = await visiteur.call("GET", "/auth/google");
+    check("sans configuration, /auth/google répond 404 au lieu de planter", depart.status === 404);
+    const retour = await visiteur.call("GET", "/auth/google/callback?code=faux&state=faux");
+    check("le retour de Google répond aussi 404, sans erreur serveur", retour.status === 404);
+  }
+
   // --- Limitation de débit ----------------------------------------------
   //
   // Ce test vide volontairement le « seau à jetons » des tentatives de
@@ -233,7 +258,7 @@ async function main() {
   // serveur, donc deux seaux différents. C'est fidèle à la réalité — un
   // attaquant n'est pas au même endroit que les utilisateurs normaux — et
   // cela évite qu'un test en gêne un autre.
-  section("9. Limitation de débit");
+  section("10. Limitation de débit");
   const attaquant = createHttpClient(BASE.replace("localhost", "127.0.0.1"));
   let bloque = false;
   for (let i = 0; i < 40; i++) {

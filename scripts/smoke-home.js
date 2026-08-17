@@ -69,6 +69,13 @@ async function main() {
   const app = dom.window.document.getElementById("app");
   check("la page se charge sans erreur JavaScript", erreurs.length === 0);
   check("le formulaire de connexion s'affiche pour un visiteur", Boolean(app.querySelector("#auth-form")));
+  // Google n'est pas configuré en développement : le bouton ne doit pas
+  // apparaître, et surtout l'email/mot de passe doit continuer de marcher —
+  // c'est ce que vérifient les lignes suivantes.
+  check(
+    "sans configuration Google, le bouton « Continuer avec Google » est absent",
+    app.querySelector("#google-login") === null
+  );
   check("on peut basculer vers « Créer un compte »", app.querySelectorAll(".auth-tabs button").length === 2);
 
   // Bascule sur l'inscription.

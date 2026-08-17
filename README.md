@@ -44,6 +44,7 @@ Puis ouvrir **http://localhost:5173/**.
 | `npm run browser` | **Test dans un vrai Chromium** (Playwright) : dessine avec chaque outil, lit la console du navigateur |
 | `npm run load` | Test de charge : 6 participants simultanés |
 | `npm run test:pg` | Vérifie le serveur sur un **vrai PostgreSQL** temporaire (le moteur utilisé en ligne) |
+| `npm run test:google` | Vérifie la connexion Google de bout en bout, **sans compte Google** (la réponse de Google est simulée) |
 | `npm run build` | Compile le client dans `client/dist/` |
 | `npm start` | Serveur seul, qui sert aussi le client compilé (mode production) |
 
@@ -70,9 +71,15 @@ centile** avec 6 participants (objectif du sujet : 200 ms).
 (voir §4). Si le réseau tombe, on continue de dessiner : les traits sont
 renvoyés et fusionnés à la reconnexion.
 
-**Comptes et partage** — inscription email/mot de passe, page « mes boards »,
-boards publics ou privés, invitation par email ou par lien, avec droits
-« peut regarder » ou « peut dessiner ».
+**Comptes et partage** — inscription par email/mot de passe **ou par Google**,
+page « mes boards », boards publics ou privés, invitation par email ou par
+lien, avec droits « peut regarder » ou « peut dessiner ».
+
+La connexion Google est **facultative** : sans les variables
+`GOOGLE_CLIENT_ID` et `GOOGLE_CLIENT_SECRET`, le bouton disparaît et
+l'email/mot de passe fonctionne normalement. Si une personne se connecte avec
+un compte Google dont l'adresse existe déjà, les deux sont **reliés** : elle
+retrouve ses boards au lieu de repartir d'un compte vide.
 
 ---
 
@@ -289,7 +296,7 @@ Le détail de ce qui a été adapté dans le code pour la production est dans
 ## 7. Ce qui reste à faire
 
 - **Vidéo de démo** (~3 min) montrant deux navigateurs sur le même board.
-- Connexion via **Google/GitHub** (OAuth) : le sujet propose « email + mot de
-  passe **ou** OAuth », la première option est implémentée.
+- Connexion via **GitHub** (OAuth) : email/mot de passe et Google sont
+  implémentés, GitHub non — le sujet demande l'un **ou** l'autre.
 - Bonus non traités : chat vocal, images en fond, notes autocollantes,
   assistance IA, version mobile tactile, historique avec curseur temporel.

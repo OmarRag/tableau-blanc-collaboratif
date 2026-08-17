@@ -94,6 +94,60 @@ export async function createUser({ email, password, name }) {
   return getUserById(id);
 }
 
+// Valeur rangée dans « password_hash » pour un compte créé via Google, qui
+// n'a donc aucun mot de passe. Ce n'est pas une empreinte scrypt valide :
+// verifyPassword renvoie toujours false dessus, donc ce compte ne peut pas
+// être ouvert par le formulaire email/mot de passe.
+const NO_PASSWORD = "google-sans-mot-de-passe";
+
+/**
+ * Retrouve (ou crée) le compte correspondant à une identité Google.
+ *
+ * Trois cas :
+ *   1. On connaît déjà cet identifiant Google → on renvoie le compte.
+ *   2. Un compte existe avec la même adresse email → on relie les deux, pour
+ *      que la personne retrouve ses boards au lieu d'avoir deux comptes.
+ *   3. Personne → on crée un nouveau compte.
+ *
+ * @param {{sub:string, email:string, emailVerified:boolean, name?:string}} profil
+ */
+export async function findOrCreateGoogleUser(profil) {
+  const googleId = String(profil.sub || "");
+  const email = String(profil.email || "").trim().toLowerCase();
+  if (!googleId || !email) throw new Error("Profil Google incomplet.");
+
+  // Sécurité : sans email vérifié, n'importe qui pourrait créer un compte
+  // Google portant l'adresse de quelqu'un d'autre et récupérer ses boards.
+  if (!profil.emailVerified) {
+    throw new Error("Cette adresse Google n'est pas vérifiée.");
+  }
+
+  const parGoogle = await get("SELECT * FROM users WHERE google_id = ?", [googleId]);
+  if (parGoogle) return parGoogle;
+
+  const parEmail = await getUserByEmail(email);
+  if (parEmail) {
+    await run("UPDATE users SET google_id = ? WHERE id = ?", [googleId, parEmail.id]);
+    return getUserById(parEmail.id);
+  }
+
+  const id = shortId(12);
+  await run(
+    `INSERT INTO users (id, email, password_hash, name, color, created_at, google_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      email,
+      NO_PASSWORD,
+      String(profil.name || email.split("@")[0]).trim(),
+      colorFor(id),
+      now(),
+      googleId,
+    ]
+  );
+  return getUserById(id);
+}
+
 export async function getUserByEmail(email) {
   return get("SELECT * FROM users WHERE email = ?", [
     String(email).trim().toLowerCase(),

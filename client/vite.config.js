@@ -29,6 +29,9 @@ export default defineConfig({
     // pas de problème de CORS ni de cookies bloqués.
     proxy: {
       "/api": { target: "http://localhost:3000", changeOrigin: true },
+      // Connexion Google : le navigateur part chez Google depuis cette
+      // adresse, et Google le renvoie directement au serveur (port 3000).
+      "/auth": { target: "http://localhost:3000", changeOrigin: true },
       "/socket.io": { target: "http://localhost:3000", ws: true, changeOrigin: true },
     },
   },

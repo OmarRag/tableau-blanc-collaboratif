@@ -51,6 +51,17 @@ export const config = {
     authRefillPerSecond: Number(process.env.RATE_LIMIT_AUTH_REFILL || 0.1),
   },
 
+  // Connexion avec Google (facultative). Si l'une des deux valeurs manque, la
+  // fonctionnalité est simplement désactivée : le bouton disparaît de la page
+  // et l'email/mot de passe continue de fonctionner normalement.
+  google: {
+    clientId: (process.env.GOOGLE_CLIENT_ID || "").trim(),
+    clientSecret: (process.env.GOOGLE_CLIENT_SECRET || "").trim(),
+    get enabled() {
+      return this.clientId.length > 0 && this.clientSecret.length > 0;
+    },
+  },
+
   clientOrigin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
   isProduction: process.env.NODE_ENV === "production",
   // Dossier des fichiers compilés du client, servis en production.
