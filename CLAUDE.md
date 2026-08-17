@@ -107,12 +107,11 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
       Boards enregistrés en base, URL unique par board, public/privé.
 - [x] **Étape 4 — Comptes & partage.** ✅ *11 août 2026*
       Inscription/connexion, page « mes boards », partage avec droits.
-- [~] **Étape 5 — Mise en ligne.** ← **en cours**
-      Le **code est prêt** (PostgreSQL, port et cookies de production,
-      documentation). Il reste les **clics** chez GitHub, Supabase/Neon et
-      Render, qui demandent les comptes de l'étudiant.
-      Guide complet : [`docs/deploiement.md`](docs/deploiement.md).
-- [ ] **Étape 6 — Finitions.**
+- [x] **Étape 5 — Mise en ligne.** ✅ *17 août 2026*
+      Le site est en ligne sur
+      **https://tableau-blanc-collaboratif.onrender.com**
+      (Render + Neon PostgreSQL). Guide : [`docs/deploiement.md`](docs/deploiement.md).
+- [ ] **Étape 6 — Finitions.** ← **prochaine étape**
       Vidéo de démo (~3 min), rapport de stage.
       *(Les tests automatiques et la documentation technique sont déjà faits.)*
 
@@ -143,7 +142,8 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 | Base de données (en ligne) | **PostgreSQL** via `pg` | Render efface le disque à chaque redéploiement : un fichier SQLite y serait perdu. Bascule automatique dès que `DATABASE_URL` existe. |
 | Comptes | **session en base + cookie signé**, mot de passe **scrypt** | Un JWT ne peut pas être révoqué ; une session en base se supprime à la déconnexion. |
 | Tests | `node --test` (intégré) + **jsdom** | Aucune dépendance de test lourde. jsdom permet de tester les pages sans navigateur. |
-| Hébergement | **Render** (offre gratuite) + **Supabase/Neon** pour la base | Render gère les WebSockets et le HTTPS. Sa base PostgreSQL gratuite étant supprimée après 30 jours, la base vient d'ailleurs. Détails : [`docs/deploiement.md`](docs/deploiement.md). |
+| Hébergement | **Render** (offre gratuite, région Frankfurt) | Gère les WebSockets et fournit le HTTPS. |
+| Base en ligne | **Neon PostgreSQL** (offre gratuite, région Frankfurt) | Base `tableau_blanc`, *connection pooling* activé. Même région que Render pour limiter la latence. La base gratuite de Render étant supprimée après 30 jours, elle a été écartée. |
 
 ### Questions techniques ouvertes
 
@@ -155,26 +155,38 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 
 ## 6. Où on en est
 
-**Étapes 0 à 4 terminées. Prochaine : étape 5 (mise en ligne), à faire
-avec l'étudiant car elle demande ses comptes d'hébergement.**
+**Étapes 0 à 5 terminées. Le site est EN LIGNE.
+Prochaine : étape 6 (vidéo de démo + rapport de stage).**
 
-Tout le produit fonctionne en local : dessin complet, temps réel, curseurs,
-sauvegarde, comptes, partage.
+🔗 **https://tableau-blanc-collaboratif.onrender.com**
+📦 **https://github.com/OmarRag/tableau-blanc-collaboratif**
 
 - ✅ Étape 0 — squelette Vite + dépôt Git.
 - ✅ Étape 1 — moteur de dessin complet (7 outils, pan/zoom, undo/redo,
   export PNG et JSON, import JSON).
 - ✅ Étape 2 — temps réel (formes + curseurs avec pseudo et couleur),
   fusion sans conflit, reconnexion sans perte.
-- ✅ Étape 3 — persistance SQLite, URL unique par board, public/privé.
+- ✅ Étape 3 — persistance, URL unique par board, public/privé.
 - ✅ Étape 4 — comptes, page « mes boards », partage par email et par lien
   avec droits lecture/écriture.
-- ✅ Tests : 25 tests unitaires, 27 vérifications de bout en bout,
-  32 vérifications d'interface, test de charge à 6 participants. **Tous au
-  vert.**
-- ✅ Documentation : `README.md` (architecture + diagrammes de séquence) et
-  `docs/choix-techniques.md`.
-- ⏳ Reste : déploiement (étape 5), vidéo de démo, rapport de stage.
+- ✅ Étape 5 — en ligne sur Render (Frankfurt) + Neon PostgreSQL (Frankfurt),
+  HTTPS, limitation de débit, configuration par variables d'environnement.
+- ✅ Tests : 26 tests unitaires, 28 vérifications de bout en bout,
+  38 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
+  PostgreSQL, test de charge à 6 participants. **Tous au vert.**
+- ✅ Documentation : `README.md` (architecture + diagrammes de séquence),
+  `docs/choix-techniques.md`, `docs/deploiement.md`.
+- ⏳ Reste : vidéo de démo (~3 min), rapport de stage.
+
+**Deux limites de l'hébergement gratuit à ne pas oublier**
+
+1. Le serveur **s'endort après 15 min** sans visite ; le réveil prend
+   30 à 50 s. Ouvrir le site une minute avant toute démonstration.
+2. Render a été branché en mode **« Public Git Repository »** (GitHub était en
+   panne le jour du déploiement), donc il n'est **pas** connecté au dépôt :
+   après chaque `git push`, il faut cliquer *Manual Deploy → Deploy latest
+   commit* dans Render. À rebrancher sur GitHub pour retrouver le
+   déploiement automatique.
 
 **Mesures relevées en local** — latence de synchronisation : 6 ms en moyenne,
 9 ms au 95e centile avec 6 participants (le sujet demande moins de 200 ms).

@@ -1,7 +1,22 @@
 # Mise en ligne (étape 5)
 
+> ✅ **Fait le 17 août 2026.** Le site tourne sur
+> **https://tableau-blanc-collaboratif.onrender.com**
+>
+> | | |
+> |---|---|
+> | Serveur | Render, offre gratuite, région **Frankfurt** |
+> | Base de données | Neon PostgreSQL, offre gratuite, base `tableau_blanc`, *connection pooling*, région **Frankfurt** |
+> | Variables sur Render | `DATABASE_URL`, `SESSION_SECRET`, `NODE_ENV=production` |
+> | Health check | `/healthz` |
+> | Dépôt | https://github.com/OmarRag/tableau-blanc-collaboratif |
+>
+> Deux points à retenir : l'instance gratuite **s'endort après 15 minutes**
+> (réveil en 30 à 50 s), et Render a été branché en mode **« Public Git
+> Repository »** — il ne se redéploie donc **pas** tout seul après un
+> `git push`, il faut cliquer *Manual Deploy → Deploy latest commit*.
+
 Ce document explique **comment le projet est configuré pour la production**.
-La liste des clics à faire soi-même est à la fin.
 
 Tout ce qui est décrit ici est **gratuit** : aucune carte bancaire n'est
 nécessaire, ni chez Render, ni chez Supabase, ni chez Neon.

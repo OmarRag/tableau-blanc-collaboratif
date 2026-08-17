@@ -21,7 +21,7 @@
 | 3 | Sauvegarde & rooms | ✅ Fait |
 | 4 | Comptes & partage | ✅ Fait |
 | — | Correction de 3 bugs bloquants + test navigateur réel | ✅ Fait |
-| 5 | Mise en ligne — code prêt (PostgreSQL + production) | 🔧 Code fait, clics à faire |
+| 5 | Mise en ligne | ✅ Fait — site en ligne |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -517,5 +517,80 @@ Le vrai défaut n'était donc pas la limitation, mais le fait qu'elle était
 **Leçon :** un test qui passe seul mais échoue en série révèle souvent un
 couplage caché. Ici, la suite complète est maintenant vérifiée enchaînée, et
 plus seulement script par script.
+
+---
+
+## Entrée 5 — Étape 5 terminée : le site est en ligne
+
+**Date :** 17 août 2026
+**Étape :** 5 — terminée
+
+### Ce qui a été fait
+
+Le tableau blanc est accessible publiquement, en HTTPS :
+
+🔗 **https://tableau-blanc-collaboratif.onrender.com**
+
+| Élément | Choix retenu |
+|---|---|
+| Serveur | **Render**, offre gratuite, région **Frankfurt** |
+| Base de données | **Neon PostgreSQL**, offre gratuite, base `tableau_blanc`, *connection pooling* activé, région **Frankfurt** |
+| Base en développement | **SQLite** — inchangé |
+| Surveillance | `/healthz` |
+| Dépôt | https://github.com/OmarRag/tableau-blanc-collaboratif |
+
+Trois variables d'environnement sont configurées dans Render :
+`DATABASE_URL`, `SESSION_SECRET` et `NODE_ENV=production`. **Leurs valeurs ne
+sont écrites nulle part dans le dépôt** — le code ne connaît que leurs noms,
+et `server/.env.example` ne contient que des exemples. C'est exactement ce que
+le sujet demande par « configuration par variables d'environnement ».
+
+### Les choix techniques et pourquoi
+
+**Pourquoi Neon plutôt que Supabase ?** Les deux offrent une base PostgreSQL
+gratuite sans date d'expiration. Neon a été préféré parce que son adresse de
+connexion fonctionne telle quelle depuis Render. Supabase impose de passer par
+son « Session pooler » : sa connexion directe n'est joignable qu'en IPv6, que
+Render ne gère pas — un piège invisible tant qu'on n'a pas essayé.
+
+**Pourquoi le *connection pooling* ?** Un « pool » est une réserve de
+connexions déjà ouvertes, prêtées puis rendues. Ouvrir une connexion à une
+base coûte cher ; les offres gratuites en limitent d'ailleurs sévèrement le
+nombre. Le pilote côté serveur est déjà réglé sur 5 connexions maximum, et
+Neon ajoute son propre pool en façade.
+
+**Pourquoi les deux services dans la même région (Frankfurt) ?** Le serveur
+interroge la base à chaque dessin enregistré. Si la base était en Virginie et
+le serveur en Allemagne, chaque requête paierait un aller-retour
+transatlantique (~90 ms). Côte à côte, cela coûte quelques millisecondes. Le
+sujet exige moins de 200 ms de latence perçue : c'est un choix qui compte.
+
+### Les problèmes rencontrés et comment on les a résolus
+
+- **Problème :** **GitHub était en panne** le jour du déploiement. Render ne
+  pouvait donc pas se connecter au compte GitHub pour lire le dépôt.
+  **Résolu :** utilisation de l'option **« Public Git Repository »** de
+  Render, qui lit un dépôt public par son adresse, sans passer par le compte.
+  **Conséquence à retenir :** Render n'est pas relié au dépôt, donc il ne se
+  redéploie **pas** tout seul après un `git push`. Il faut cliquer
+  *Manual Deploy → Deploy latest commit*. À rebrancher sur GitHub dès que
+  possible pour retrouver le déploiement automatique.
+
+- **Limite de l'offre gratuite :** l'instance **s'endort après 15 minutes**
+  sans visite, et le réveil prend **30 à 50 secondes**. Ce n'est pas un bug,
+  c'est la contrepartie de la gratuité. À prévoir pour la vidéo de démo et
+  pour la soutenance : ouvrir le site une minute à l'avance. Ce point est
+  écrit en haut du `README.md` pour que personne ne croie à une panne.
+
+### Comment lancer le projet
+
+En local, rien ne change (`npm run dev` → http://localhost:5173/). Pour
+vérifier que le site en ligne répond :
+
+```powershell
+curl https://tableau-blanc-collaboratif.onrender.com/healthz
+```
+
+Réponse attendue : `{"ok":true}`.
 
 ---

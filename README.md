@@ -1,5 +1,11 @@
 # Tableau blanc collaboratif en temps réel
 
+### 🔗 En ligne : **https://tableau-blanc-collaboratif.onrender.com**
+
+> L'hébergement est gratuit : le serveur **s'endort après 15 minutes** sans
+> visite. La première page demande alors **30 à 50 secondes** à s'afficher, le
+> temps qu'il se réveille. Ensuite tout est instantané.
+
 Un tableau blanc infini, à plusieurs, dans le navigateur : on dessine, les
 autres voient le trait apparaître en direct, et le dessin est sauvegardé.
 
@@ -226,8 +232,11 @@ toutes les 40 ms. Deux effets :
 - Cookie de session `HttpOnly` + `SameSite=Lax`, signé (HMAC-SHA256), et
   `Secure` en production.
 - **Limitation de débit** : 120 requêtes/min par IP sur l'API, 10 tentatives
-  de connexion d'un coup puis 1 toutes les 2 s, 120 opérations de dessin par
-  seconde et par connexion.
+  de connexion d'un coup puis 1 toutes les 10 s, 120 opérations de dessin par
+  seconde et par connexion. Ces seuils sont réglables par variables
+  d'environnement (`RATE_LIMIT_*`) ; les valeurs ci-dessus sont celles
+  appliquées **en production**, et le `.env` local les assouplit pour que la
+  suite de tests ne se bloque pas elle-même.
 - Les droits sont revérifiés **côté serveur** à chaque opération : l'auteur
   d'une forme est imposé par le serveur, jamais accepté depuis le client.
 - Le jeton de partage n'est jamais renvoyé à quelqu'un qui n'est pas
@@ -235,10 +244,50 @@ toutes les 40 ms. Deux effets :
 
 ---
 
-## 6. Ce qui reste à faire
+## 6. Mise en ligne
 
-- **Déploiement** en ligne (HTTPS, URL publique) — nécessite des comptes
-  personnels (hébergeur, nom de domaine).
+Le site est déployé sur **https://tableau-blanc-collaboratif.onrender.com**
+(HTTPS fourni par l'hébergeur).
+
+| Élément | Choix | Détail |
+|---|---|---|
+| Hébergeur du serveur | **Render**, offre gratuite | région **Frankfurt** |
+| Base de données | **Neon PostgreSQL**, offre gratuite | base `tableau_blanc`, *connection pooling* activé, région **Frankfurt** |
+| Base en développement | **SQLite** | inchangé : rien à installer en local |
+| Surveillance | `/healthz` | Render y vérifie que le service est vivant |
+
+Les deux services sont dans la **même région (Frankfurt)** : le serveur et la
+base sont physiquement proches, donc chaque requête à la base coûte quelques
+millisecondes au lieu de quelques dizaines.
+
+**Variables d'environnement configurées sur Render** (leurs valeurs ne sont
+écrites nulle part dans le dépôt — voir [`server/.env.example`](server/.env.example)) :
+
+| Nom | Rôle |
+|---|---|
+| `DATABASE_URL` | adresse de la base Neon ; sa seule présence fait basculer le serveur de SQLite vers PostgreSQL |
+| `SESSION_SECRET` | signe les cookies de connexion et sale les mots de passe |
+| `NODE_ENV=production` | active les cookies `Secure` et le service des fichiers compilés |
+
+### Deux limites à connaître
+
+- **Le serveur s'endort après 15 minutes sans visite** (contrainte de l'offre
+  gratuite). Le réveil prend **30 à 50 secondes**. Pour une démonstration,
+  ouvrir le site une minute à l'avance.
+- Le déploiement a été fait via l'option **« Public Git Repository »** de
+  Render, GitHub étant en panne ce jour-là. Conséquence : Render n'est pas
+  connecté au dépôt, donc **les mises à jour ne partent pas toutes seules** —
+  il faut cliquer *Manual Deploy → Deploy latest commit* dans Render après
+  chaque `git push`. À rebrancher sur GitHub quand ce sera possible, pour
+  retrouver le déploiement automatique.
+
+Le détail de ce qui a été adapté dans le code pour la production est dans
+[`docs/deploiement.md`](docs/deploiement.md).
+
+---
+
+## 7. Ce qui reste à faire
+
 - **Vidéo de démo** (~3 min) montrant deux navigateurs sur le même board.
 - Connexion via **Google/GitHub** (OAuth) : le sujet propose « email + mot de
   passe **ou** OAuth », la première option est implémentée.
