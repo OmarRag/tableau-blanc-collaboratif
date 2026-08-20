@@ -23,6 +23,7 @@
 | — | Correction de 3 bugs bloquants + test navigateur réel | ✅ Fait |
 | 5 | Mise en ligne | ✅ Fait — site en ligne |
 | — | Connexion avec Google (OAuth 2.0) | ✅ Fait |
+| — | Mise en service des vraies clés Google | ✅ Fait en local — reste Render |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -699,6 +700,95 @@ GOOGLE_CLIENT_SECRET=...
 Sans ces lignes, le bouton ne s'affiche pas et rien d'autre ne change.
 
 ```powershell
+npm run test:google    # 24 vérifications, sans compte Google
+```
+
+---
+
+## Entrée 7 — Mise en service des vraies clés Google
+
+**Date :** 21 août 2026
+**Étape :** suite de l'entrée 6
+
+### Ce qui a été fait
+
+L'entrée 6 avait écrit **le code** de la connexion Google, mais il tournait
+avec des clés factices. Ici on branche les **vraies** clés.
+
+- Création d'un **projet Google Cloud séparé et dédié**, nommé
+  **`tableau-blanc`**. On n'a volontairement pas réutilisé le projet Google
+  d'un autre travail (`RDV_reunion`) : mélanger deux applications dans le même
+  projet Google rend impossible de savoir laquelle utilise quoi, et retirer
+  une clé pour l'une casserait l'autre. Un projet = une application.
+- Dans ce projet : un **client OAuth dédié**, de type **« Application Web »**.
+- **Écran de consentement** : type **External**, en **mode test**.
+- Les **deux adresses de retour sont déjà déclarées** dans la Console Google :
+
+  ```
+  http://localhost:3000/auth/google/callback
+  https://tableau-blanc-collaboratif.onrender.com/auth/google/callback
+  ```
+
+  Rien à ajouter de ce côté-là, ni pour le local, ni pour la mise en ligne.
+- Les deux valeurs `GOOGLE_CLIENT_ID` et `GOOGLE_CLIENT_SECRET` ont été
+  écrites dans **`server/.env`**, et **nulle part ailleurs**. Ce fichier est
+  ignoré par Git (`.gitignore`, ligne `.env`) : les valeurs ne peuvent pas
+  partir sur GitHub. Aucun fichier suivi par Git ne contient de secret — seuls
+  les **noms** des variables apparaissent, jamais les valeurs.
+
+### La vérification dans un vrai navigateur
+
+Contrôlé dans un vrai Chromium, avec les vraies clés :
+
+- le serveur annonce bien `{"providers":{"google":true}}` ;
+- le bouton **« Continuer avec Google »** s'affiche, mesure 338 × 41 px et
+  rien ne le recouvre ;
+- le clic mène à la vraie page Google, qui affiche
+  **« Sign in — to continue to Tableau blanc »**.
+
+Ce dernier point est la **preuve que l'adresse de retour est acceptée** : si
+`http://localhost:3000/auth/google/callback` n'avait pas été déclarée, Google
+aurait répondu `Erreur 400 : redirect_uri_mismatch` au lieu d'afficher l'écran
+de connexion.
+
+### Le problème rencontré et comment on l'a résolu
+
+- **Problème :** `npm run smoke` est passé au rouge dès que les vraies clés
+  ont été posées. Le test vérifiait **en dur** que le bouton Google était
+  *absent* — ce qui n'était vrai que tant qu'il n'y avait pas de clés. Le
+  bouton apparaissait donc **à raison**, et c'est le test qui avait tort.
+  **Résolu :** le test demande maintenant au serveur ce qu'il propose
+  (`/api/auth/me` → `providers.google`), puis vérifie que la page dit la même
+  chose. Il reste juste **dans les deux cas**, avec ou sans clés. Une
+  vérification a été ajoutée au passage : le bouton pointe bien vers
+  `/auth/google`.
+- **Leçon retenue :** un test ne doit pas figer une **configuration**, mais
+  vérifier la **cohérence** entre le serveur et la page. Sinon il se casse dès
+  qu'on change un réglage, sans qu'aucun bug n'existe.
+
+### Où en est cette fonctionnalité
+
+| | État |
+|---|---|
+| Console Google (projet, client, écran de consentement) | ✅ Fait |
+| Les 2 adresses de retour déclarées | ✅ Fait |
+| Clés dans `server/.env` (local) | ✅ Fait |
+| Connexion testée en local dans un vrai navigateur | ✅ Fait |
+| Clés dans Render → onglet *Environment* | ⏳ **Reste à faire** |
+| Redéploiement de Render | ⏳ **Reste à faire** |
+
+⚠️ **L'écran de consentement est en mode test.** Conséquence : seuls les
+comptes Google ajoutés dans la liste **« Test users »** de la Console peuvent
+se connecter (100 maximum). Pour la vidéo de démo, penser à y ajouter les
+adresses qui seront montrées, sinon Google affichera « Accès bloqué ».
+
+### Comment lancer le projet
+
+Inchangé (`npm run dev`). Le bouton Google apparaît maintenant tout seul en
+local, puisque `server/.env` contient les deux variables.
+
+```powershell
+npm run smoke          # vérifie la cohérence bouton ↔ configuration serveur
 npm run test:google    # 24 vérifications, sans compte Google
 ```
 

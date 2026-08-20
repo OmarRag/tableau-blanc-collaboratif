@@ -141,7 +141,7 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 | Base de données (local) | **SQLite** via `node:sqlite` | Intégré à Node 24 : zéro dépendance, zéro compilation (contrairement à `better-sqlite3`). Un seul fichier. |
 | Base de données (en ligne) | **PostgreSQL** via `pg` | Render efface le disque à chaque redéploiement : un fichier SQLite y serait perdu. Bascule automatique dès que `DATABASE_URL` existe. |
 | Comptes | **session en base + cookie signé**, mot de passe **scrypt** | Un JWT ne peut pas être révoqué ; une session en base se supprime à la déconnexion. |
-| Connexion Google | **OAuth 2.0 écrit à la main** (~130 lignes), sans Passport ni bibliothèque | Deux requêtes HTTP et un décodage suffisent. Passport imposerait d'apprendre son système de « stratégies » pour le même résultat. Facultatif : sans les clés, le bouton disparaît. |
+| Connexion Google | **OAuth 2.0 écrit à la main** (~130 lignes), sans Passport ni bibliothèque | Deux requêtes HTTP et un décodage suffisent. Passport imposerait d'apprendre son système de « stratégies » pour le même résultat. Facultatif : sans les clés, le bouton disparaît. **En service** depuis le 21 août 2026 (projet Google Cloud dédié `tableau-blanc`). |
 | Tests | `node --test` (intégré) + **jsdom** | Aucune dépendance de test lourde. jsdom permet de tester les pages sans navigateur. |
 | Hébergement | **Render** (offre gratuite, région Frankfurt) | Gère les WebSockets et fournit le HTTPS. |
 | Base en ligne | **Neon PostgreSQL** (offre gratuite, région Frankfurt) | Base `tableau_blanc`, *connection pooling* activé. Même région que Render pour limiter la latence. La base gratuite de Render étant supprimée après 30 jours, elle a été écartée. |
@@ -178,7 +178,43 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   **Tous au vert.**
 - ✅ Documentation : `README.md` (architecture + diagrammes de séquence),
   `docs/choix-techniques.md`, `docs/deploiement.md`.
-- ⏳ Reste : vidéo de démo (~3 min), rapport de stage.
+- ✅ Connexion Google **en service en local** avec les vraies clés
+  (projet Google Cloud dédié `tableau-blanc`, testée dans un vrai navigateur).
+- ⏳ Reste : **les 2 variables Google à poser dans Render**, vidéo de démo
+  (~3 min), rapport de stage.
+
+**État exact de la connexion Google** *(détail : `JOURNAL.md`, entrée 7)*
+
+| | État |
+|---|---|
+| Projet Google Cloud **séparé et dédié** : `tableau-blanc` | ✅ Fait |
+| Client OAuth dédié, type **« Application Web »** | ✅ Fait |
+| Écran de consentement : **External**, en **mode test** | ✅ Fait |
+| Les **2 adresses de retour** déclarées dans la Console | ✅ Fait — **rien à ajouter** |
+| `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` dans `server/.env` | ✅ Fait (local) |
+| Connexion testée en local dans un vrai navigateur | ✅ Fait |
+| Les 2 mêmes variables dans **Render → Environment** | ⏳ **À faire** |
+| Redéploiement de Render | ⏳ **À faire** |
+
+Les 2 adresses de retour déclarées, pour mémoire :
+
+```
+http://localhost:3000/auth/google/callback
+https://tableau-blanc-collaboratif.onrender.com/auth/google/callback
+```
+
+⚠️ Le projet Google est **volontairement séparé** de celui d'un autre travail
+(`RDV_reunion`) : un projet Google = une application, sinon retirer une clé
+pour l'un casserait l'autre.
+
+⚠️ L'écran de consentement étant **en mode test**, seuls les comptes Google
+inscrits dans la liste **« Test users »** de la Console peuvent se connecter
+(100 maximum). À préparer **avant** la vidéo de démo, sinon Google affichera
+« Accès bloqué ».
+
+⚠️ Les **valeurs** des deux clés ne sont écrites que dans `server/.env`, qui
+est ignoré par Git. Aucun fichier suivi par Git ne doit jamais contenir autre
+chose que les **noms** des variables.
 
 **Deux limites de l'hébergement gratuit à ne pas oublier**
 
