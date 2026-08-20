@@ -69,13 +69,27 @@ async function main() {
   const app = dom.window.document.getElementById("app");
   check("la page se charge sans erreur JavaScript", erreurs.length === 0);
   check("le formulaire de connexion s'affiche pour un visiteur", Boolean(app.querySelector("#auth-form")));
-  // Google n'est pas configuré en développement : le bouton ne doit pas
-  // apparaître, et surtout l'email/mot de passe doit continuer de marcher —
-  // c'est ce que vérifient les lignes suivantes.
-  check(
-    "sans configuration Google, le bouton « Continuer avec Google » est absent",
-    app.querySelector("#google-login") === null
+  // Le bouton Google ne doit apparaître QUE si le serveur est configuré pour.
+  // On lui demande donc d'abord ce qu'il propose, puis on vérifie que la page
+  // dit la même chose. Ainsi le test reste juste dans les deux cas : avec ou
+  // sans GOOGLE_CLIENT_ID dans le .env. Et dans tous les cas, l'email/mot de
+  // passe doit continuer de marcher — c'est ce que vérifie la suite.
+  const googleActif = Boolean(
+    (await (await fetch("/api/auth/me")).json())?.providers?.google
   );
+  check(
+    googleActif
+      ? "Google étant configuré, le bouton « Continuer avec Google » est présent"
+      : "sans configuration Google, le bouton « Continuer avec Google » est absent",
+    (app.querySelector("#google-login") !== null) === googleActif
+  );
+  if (googleActif) {
+    const lien = app.querySelector("#google-login");
+    check(
+      "le bouton Google pointe vers /auth/google",
+      lien.getAttribute("href") === "/auth/google"
+    );
+  }
   check("on peut basculer vers « Créer un compte »", app.querySelectorAll(".auth-tabs button").length === 2);
 
   // Bascule sur l'inscription.
