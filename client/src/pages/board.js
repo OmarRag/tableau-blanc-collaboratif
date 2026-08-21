@@ -6,6 +6,7 @@ import { createRenderer } from "../board/render.js";
 import { createTools } from "../board/tools.js";
 import { createNet } from "../board/net.js";
 import { exportPng, exportJson, readJsonFile } from "../board/exporters.js";
+import { createVoice, voiceSupported } from "../board/voice.js";
 
 const boardId = location.pathname.split("/").filter(Boolean)[1];
 const shareToken = new URLSearchParams(location.search).get("k");
@@ -21,6 +22,7 @@ let net = null;
 let tools = null;
 let store = null;
 let camera = null;
+let voice = null;
 const peers = new Map(); // socketId → { name, color, x, y }
 
 start();
@@ -79,6 +81,7 @@ async function start() {
     onPresence: handlePresence,
   });
 
+  setupVoice();
   setupUi();
   refreshUi();
 }
@@ -127,6 +130,66 @@ function setStatus({ connected, warning }) {
   if (warning) return toast(warning);
   badge.textContent = connected ? "en ligne" : "hors ligne — vos traits seront renvoyés";
   badge.className = `badge ${connected ? "ok" : "off"}`;
+}
+
+// --- Chat vocal -----------------------------------------------------------
+//
+// Entièrement facultatif : si le navigateur ne sait pas faire de WebRTC, ou si
+// le micro est refusé, le tableau continue de fonctionner exactement pareil.
+
+function setupVoice() {
+  const bouton = el("btn-voice");
+  const micro = el("btn-mic");
+
+  // Navigateur trop ancien (ou navigateur simulé des tests) : on n'affiche
+  // même pas le bouton, plutôt que de proposer quelque chose qui échouera.
+  if (!voiceSupported()) return;
+  bouton.hidden = false;
+
+  voice = createVoice({
+    net,
+    onChange: renderVoice,
+    // Le message d'erreur reste affiché plus longtemps que d'habitude : il
+    // explique quoi faire, il faut avoir le temps de le lire.
+    onError: (message) => toast(message, 8000),
+  });
+
+  bouton.onclick = () => (voice.joined ? voice.leave() : voice.join());
+  micro.onclick = () => voice.toggleMic();
+
+  // Quitter proprement l'appel si on ferme l'onglet : sans cela, les autres
+  // continueraient d'afficher quelqu'un qui n'est plus là.
+  window.addEventListener("pagehide", () => voice?.destroy());
+
+  renderVoice(voice.etat());
+}
+
+function renderVoice(etat) {
+  const bouton = el("btn-voice");
+  const micro = el("btn-mic");
+
+  bouton.textContent = etat.joined ? "⏻ Quitter l'audio" : "🎙 Rejoindre l'audio";
+  bouton.classList.toggle("in-call", etat.joined);
+
+  micro.hidden = !etat.joined;
+  micro.textContent = etat.micOn ? "🎤" : "🔇";
+  micro.title = etat.micOn ? "Couper le micro" : "Activer le micro";
+  micro.classList.toggle("muted", !etat.micOn);
+
+  // Une pastille par personne dans l'appel, moi compris. Celle de la personne
+  // qui parle s'entoure d'un halo (classe « speaking »).
+  const moi = etat.joined
+    ? [{ socketId: "moi", name: "Moi", color: "#0f766e", speaking: etat.speaking && etat.micOn }]
+    : [];
+  el("voice-peers").innerHTML = [...moi, ...etat.peers]
+    .map(
+      (peer) =>
+        `<span class="peer-dot voice-dot${peer.speaking ? " speaking" : ""}"
+               style="background:${peer.color}"
+               title="${escapeHtml(peer.name)}${peer.speaking ? " — parle" : ""}">
+           ${escapeHtml(initials(peer.name))}</span>`
+    )
+    .join("");
 }
 
 // --- Interface ------------------------------------------------------------
@@ -315,12 +378,12 @@ function refreshUi() {
 }
 
 let toastTimer = null;
-function toast(message) {
+function toast(message, duree = 2600) {
   const node = el("toast");
   node.textContent = message;
   node.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (node.hidden = true), 2600);
+  toastTimer = setTimeout(() => (node.hidden = true), duree);
 }
 
 function escapeHtml(value) {

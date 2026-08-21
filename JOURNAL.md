@@ -25,6 +25,7 @@
 | — | Connexion avec Google (OAuth 2.0) | ✅ Fait |
 | — | Mise en service des vraies clés Google | ✅ Fait en local — reste Render |
 | — | Déploiement Render en échec : diagnostic de la base | ✅ Corrigé |
+| ⭐ | Bonus : chat vocal entre participants (WebRTC) | ✅ Fait |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -883,5 +884,136 @@ dans l'URL affichée.
 
 Suite complète au vert : 25 + 12 unitaires, 30 e2e, 24 Google, 19 PostgreSQL
 réel, 12 + 28 smoke, 22 navigateur réel, test de charge à 6 participants.
+
+---
+
+## Entrée 9 — Bonus : le chat vocal (WebRTC)
+
+**Date :** 21 août 2026
+**Étape :** bonus, après l'étape 5
+
+### Ce qui a été fait
+
+Les personnes présentes sur un même board peuvent maintenant **se parler**.
+Un bouton « 🎙 Rejoindre l'audio » dans la barre du haut, un bouton micro pour
+se couper, et une pastille par participant — celle de la personne qui parle
+s'entoure d'un halo.
+
+- `client/src/board/voice.js` — tout le chat vocal (~330 lignes commentées).
+- `server/src/realtime.js` — la « signalisation », 5 nouveaux messages.
+- `client/board.html` + `style.css` — les deux boutons et les pastilles.
+- `scripts/test-voice.js` — 21 vérifications dans **deux vrais Chromium**.
+
+### Comment ça marche, en une image
+
+Le son **ne passe pas par notre serveur**. Les deux navigateurs se parlent
+**directement**, d'ordinateur à ordinateur. Notre serveur ne fait que les
+présenter l'un à l'autre, comme quelqu'un qui donnerait un numéro de
+téléphone : une fois l'appel lancé, il n'est plus dans la conversation.
+
+Ces quelques messages de présentation s'appellent la **signalisation**. Ils
+passent par la connexion Socket.IO **déjà ouverte pour le dessin** : aucun
+serveur, aucun port, aucune bibliothèque en plus.
+
+Le trajet, dans l'ordre :
+
+1. Je clique sur « Rejoindre l'audio ». Le navigateur me demande l'accès au
+   micro.
+2. J'annonce au serveur que je rejoins ; il me répond avec **la liste de ceux
+   qui sont déjà dans l'appel**.
+3. J'appelle chacun d'eux : je lui envoie une « offre » (`offer`), il me
+   répond par une « réponse » (`answer`), puis on s'échange les chemins réseau
+   possibles (`ice`).
+4. Une fois d'accord, le son circule **en direct**, sans passer par nous.
+
+### Les choix techniques et pourquoi
+
+**Qui appelle qui ?** Règle : *celui qui arrive appelle ceux qui sont déjà
+là*. Sans une telle règle, deux personnes peuvent s'appeler en même temps —
+c'est le problème classique du « glare » (les deux décrochent et personne ne
+s'entend). Ici, pour chaque paire, un seul des deux compose le numéro : le
+problème ne peut pas se produire.
+
+**« Mesh » plutôt qu'un serveur de mélange audio.** Chacun est relié à chacun.
+À 4 participants cela fait 6 liaisons — largement tenable. La solution
+professionnelle (un « SFU », serveur qui reçoit tous les sons et les
+redistribue) diviserait le nombre de liaisons, mais demanderait d'héberger et
+de comprendre un logiciel entier. Hors sujet pour un bonus.
+
+**Aucune bibliothèque.** WebRTC est intégré aux navigateurs. Les
+bibliothèques du genre `simple-peer` masquent exactement ce qu'il faut
+comprendre ici : l'offre, la réponse, les candidats réseau.
+
+**Un serveur STUN public de Google.** Un STUN répond juste « voici l'adresse
+sous laquelle je te vois depuis Internet » — nécessaire car un ordinateur
+derrière une box ignore sa propre adresse publique. C'est gratuit et ça
+n'envoie aucune donnée. *Limite connue* : sur certains réseaux très fermés
+(entreprises, universités), il faudrait en plus un serveur **TURN**, qui
+relaie le son. C'est payant, et hors du cadre du stage.
+
+**Couper le micro ne raccroche pas.** On met la piste en sourdine
+(`track.enabled = false`) au lieu de l'arrêter : la liaison reste ouverte,
+donc rallumer est instantané. Un test le vérifie.
+
+**Qui parle ?** Mesuré avec l'analyseur audio du navigateur. Mon propre niveau
+est envoyé aux autres (ils ne peuvent pas le deviner quand je me coupe) ; le
+niveau des autres est mesuré **directement sur le son reçu**, donc sans aucun
+message réseau supplémentaire.
+
+**Le serveur vérifie la forme des messages** (`isValidSignal`) et ne les
+recopie que vers quelqu'un du **même board** et **déjà dans l'appel**. Sans
+ce contrôle, un participant pourrait envoyer n'importe quoi à n'importe quel
+visiteur du site, et se servir du canal comme d'un tuyau à données. La taille
+est plafonnée à 20 ko par message, et le débit à 30 messages par seconde.
+
+### Les problèmes rencontrés et comment on les a résolus
+
+- **Problème :** comment tester ? jsdom ne connaît ni les micros ni WebRTC, et
+  on ne peut pas demander à un test de parler.
+  **Résolu :** Chromium sait fabriquer un **faux micro** qui émet un bip
+  continu (`--use-fake-device-for-media-stream`) et accepter l'autorisation
+  tout seul (`--use-fake-ui-for-media-stream`). `npm run voice` ouvre donc
+  deux navigateurs, les fait rejoindre le même board, et vérifie que la
+  liaison audio s'établit vraiment.
+- **Problème :** le module ne devait pas casser les tests d'interface
+  existants, qui tournent dans jsdom.
+  **Résolu :** `voiceSupported()` vérifie la présence de `RTCPeerConnection`
+  et du micro **avant tout**. Dans jsdom, elle renvoie `false` : le bouton
+  reste caché et rien d'autre ne change. Les 28 vérifications de `smoke-dom`
+  sont restées vertes sans être modifiées.
+- **Problème :** le halo « en train de parler » faisait sauter toute la barre
+  du haut à chaque syllabe.
+  **Résolu :** il est dessiné avec `box-shadow` et non avec une bordure — une
+  bordure change la taille de la pastille, une ombre non. Le halo respecte
+  aussi le réglage système « réduire les animations ».
+
+### Le piège à retenir
+
+**Le micro n'est accessible qu'en « contexte sécurisé »** : uniquement en
+**HTTPS**, ou sur **`localhost`**. Donc :
+
+| Adresse | Micro |
+|---|---|
+| `http://localhost:5173` | ✅ autorisé (exception prévue par les navigateurs) |
+| `https://tableau-blanc-collaboratif.onrender.com` | ✅ autorisé |
+| `http://192.168.1.20:5173` (depuis un autre poste) | ❌ refusé par le navigateur |
+
+Si le micro est refusé — par ce piège ou parce que la personne a cliqué
+« Bloquer » — un message explique quoi faire, et **le tableau continue de
+fonctionner normalement**.
+
+### Les tests
+
+`npm run voice` — 21 vérifications dans deux vrais Chromium : le bouton, la
+liaison pair-à-pair réellement établie (piste audio vivante des deux côtés),
+la coupure du micro qui ne raccroche pas, le départ vu par l'autre, et un
+rectangle dessiné qui arrive toujours chez l'autre **pendant** l'appel.
+
+7 tests unitaires ajoutés côté serveur sur le contrôle des messages de
+signalisation.
+
+Suite complète au vert : 32 + 12 unitaires, 30 e2e, 24 Google, 19 PostgreSQL
+réel, 12 + 28 smoke, 22 navigateur réel, **21 chat vocal**, test de charge à
+6 participants.
 
 ---

@@ -96,5 +96,16 @@ export function createNet({ boardId, shareToken, store, onPresence, onStatus, on
     socket.close();
   }
 
-  return { send, sendCursor, destroy, get connected() { return socket.connected; } };
+  return {
+    send,
+    sendCursor,
+    destroy,
+    get connected() { return socket.connected; },
+    // Le chat vocal a besoin d'envoyer et de recevoir ses propres messages sur
+    // CETTE connexion, plutôt que d'en ouvrir une seconde. On expose donc de
+    // quoi écouter et émettre, sans donner accès au reste.
+    on: (event, handler) => socket.on(event, handler),
+    off: (event, handler) => socket.off(event, handler),
+    emit: (event, ...args) => socket.emit(event, ...args),
+  };
 }

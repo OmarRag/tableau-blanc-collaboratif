@@ -20,7 +20,8 @@
     "load": "node scripts/load-test.js",
     "browser": "node scripts/browser-test.js",
     "test:pg": "node scripts/test-postgres.js",
-    "test:google": "node scripts/test-google.js"
+    "test:google": "node scripts/test-google.js",
+    "voice": "node scripts/test-voice.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

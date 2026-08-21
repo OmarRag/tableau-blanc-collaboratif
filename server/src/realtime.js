@@ -15,6 +15,10 @@ const MAX_OPS_PER_SECOND = 120;
 // Les curseurs bougent beaucoup : on les limite séparément et on ne les
 // enregistre jamais en base.
 const MAX_CURSORS_PER_SECOND = 40;
+// Chat vocal : messages de « signalisation » (mise en relation des
+// navigateurs). Il en faut une trentaine pour établir un appel, puis presque
+// plus rien. Ce plafond laisse largement de quoi appeler plusieurs personnes.
+const MAX_SIGNALS_PER_SECOND = 30;
 
 export function setupRealtime(httpServer) {
   const io = new Server(httpServer, {
@@ -59,7 +63,14 @@ export function setupRealtime(httpServer) {
     socket.data.identity = user
       ? { id: user.id, name: user.name, color: user.color, guest: false }
       : { id: `guest-${shortId(6)}`, name: `Invité ${shortId(3)}`, color: colorFor(socket.id), guest: true };
-    socket.data.opBudget = { ops: MAX_OPS_PER_SECOND, cursors: MAX_CURSORS_PER_SECOND, last: Date.now() };
+    socket.data.opBudget = {
+      ops: MAX_OPS_PER_SECOND,
+      cursors: MAX_CURSORS_PER_SECOND,
+      signals: MAX_SIGNALS_PER_SECOND,
+      last: Date.now(),
+    };
+    // Personne n'est dans l'appel audio tant qu'il n'a pas cliqué le bouton.
+    socket.data.inVoice = false;
   }
 
   io.on("connection", async (socket) => {
@@ -126,10 +137,72 @@ export function setupRealtime(httpServer) {
       });
     });
 
+    // --- Chat vocal (WebRTC) ---------------------------------------------
+    //
+    // Le son ne passe JAMAIS par le serveur : les navigateurs se parlent
+    // directement (« pair-à-pair »). Mais pour se trouver, ils doivent
+    // d'abord s'échanger quelques messages techniques — c'est la
+    // « signalisation », et c'est tout ce que fait le serveur ici :
+    // recopier un message d'un navigateur vers un autre, sans le lire.
+    //
+    // On réutilise la connexion Socket.IO déjà ouverte pour le dessin :
+    // aucun serveur supplémentaire, aucun port en plus.
+
+    socket.on("voice:join", (_payload, ack) => {
+      if (socket.data.inVoice) return ack?.({ ok: true, peers: voicePeersOf(io, boardId, socket.id) });
+      socket.data.inVoice = true;
+      // On répond à celui qui arrive avec la liste de ceux DÉJÀ dans l'appel.
+      // C'est lui qui les appellera : ainsi, pour chaque paire, un seul des
+      // deux lance l'appel et les deux ne se téléphonent pas en même temps.
+      ack?.({ ok: true, peers: voicePeersOf(io, boardId, socket.id) });
+      socket.to(boardId).emit("voice:joined", {
+        socketId: socket.id,
+        ...socket.data.identity,
+      });
+    });
+
+    socket.on("voice:leave", () => quitterLAudio(socket, boardId));
+
+    socket.on("voice:signal", (message) => {
+      if (!socket.data.inVoice) return;
+      if (!allow(socket, "signals")) return;
+      if (!isValidSignal(message)) return;
+
+      // On ne recopie le message que vers quelqu'un qui est sur LE MÊME board
+      // et dans l'appel. Sans ce contrôle, un participant pourrait envoyer
+      // n'importe quoi à n'importe quel autre visiteur du site.
+      const cible = io.sockets.sockets.get(message.to);
+      if (!cible || cible.data.boardId !== boardId || !cible.data.inVoice) return;
+
+      cible.emit("voice:signal", {
+        from: socket.id,
+        kind: message.kind,
+        data: message.data,
+      });
+    });
+
+    // Qui parle en ce moment : une simple information d'affichage.
+    socket.on("voice:speaking", (speaking) => {
+      if (!socket.data.inVoice) return;
+      if (!allow(socket, "cursors")) return; // même plafond que les curseurs
+      socket.to(boardId).emit("voice:speaking", {
+        socketId: socket.id,
+        speaking: Boolean(speaking),
+      });
+    });
+
     socket.on("disconnect", () => {
+      quitterLAudio(socket, boardId);
       socket.to(boardId).emit("presence:leave", { socketId: socket.id });
     });
   });
+
+  /** Sortie de l'appel — par le bouton « Quitter » ou par déconnexion. */
+  function quitterLAudio(socket, boardId) {
+    if (!socket.data.inVoice) return;
+    socket.data.inVoice = false;
+    socket.to(boardId).emit("voice:left", { socketId: socket.id });
+  }
 
   return io;
 }
@@ -153,6 +226,7 @@ function allow(socket, kind) {
   budget.last = Date.now();
   budget.ops = Math.min(MAX_OPS_PER_SECOND, budget.ops + elapsed * MAX_OPS_PER_SECOND);
   budget.cursors = Math.min(MAX_CURSORS_PER_SECOND, budget.cursors + elapsed * MAX_CURSORS_PER_SECOND);
+  budget.signals = Math.min(MAX_SIGNALS_PER_SECOND, budget.signals + elapsed * MAX_SIGNALS_PER_SECOND);
   if (budget[kind] < 1) return false;
   budget[kind] -= 1;
   return true;
@@ -173,4 +247,39 @@ export function isValidOp(op) {
   // acceptable, mais on refuse l'absurde.
   if (Array.isArray(shape.points) && shape.points.length > 20000) return false;
   return JSON.stringify(shape).length <= 200_000;
+}
+
+
+/** Les participants déjà dans l'appel audio de ce board. */
+function voicePeersOf(io, boardId, exceptSocketId) {
+  const room = io.sockets.adapter.rooms.get(boardId);
+  if (!room) return [];
+  const out = [];
+  for (const socketId of room) {
+    if (socketId === exceptSocketId) continue;
+    const other = io.sockets.sockets.get(socketId);
+    if (other?.data.inVoice) out.push({ socketId, ...other.data.identity });
+  }
+  return out;
+}
+
+// Types de messages de signalisation acceptés :
+//   offer / answer = « voici comment me joindre » (description de session)
+//   ice            = un chemin réseau possible entre les deux navigateurs
+const SIGNAL_KINDS = new Set(["offer", "answer", "ice"]);
+
+/**
+ * Contrôle du message de signalisation avant de le recopier.
+ *
+ * Le serveur ne comprend pas le contenu — et n'a pas à le comprendre. Il
+ * vérifie seulement que le message a la bonne forme, qu'il vise quelqu'un, et
+ * qu'il n'est pas énorme : sans cette limite, on pourrait s'en servir pour
+ * faire transiter des données arbitraires par le serveur.
+ */
+export function isValidSignal(message) {
+  if (!message || typeof message !== "object") return false;
+  if (typeof message.to !== "string" || message.to.length === 0 || message.to.length > 64) return false;
+  if (!SIGNAL_KINDS.has(message.kind)) return false;
+  if (message.data === null || typeof message.data !== "object") return false;
+  return JSON.stringify(message.data).length <= 20_000;
 }

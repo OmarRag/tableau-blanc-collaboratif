@@ -17,6 +17,14 @@
       <span id="readonly" class="badge badge-warn" hidden>lecture seule</span>
       <div id="peers" class="peers"></div>
       <div class="spacer"></div>
+
+      <!-- Chat vocal : masqué si le navigateur ne sait pas faire de WebRTC -->
+      <div id="voice-peers" class="peers voice-peers"></div>
+      <button id="btn-mic" class="mic-button" title="Couper / activer le micro" hidden>🎤</button>
+      <button id="btn-voice" title="Parler avec les autres personnes du board" hidden>
+        🎙 Rejoindre l'audio
+      </button>
+
       <button id="btn-undo" title="Annuler (Ctrl+Z)">↶</button>
       <button id="btn-redo" title="Rétablir (Ctrl+Y)">↷</button>
       <button id="btn-export">Exporter</button>

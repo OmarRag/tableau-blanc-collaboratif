@@ -34,6 +34,7 @@ Fonctionnalités visées :
 | 9 | Comptes | Email/mot de passe ou Google/GitHub, page « mes boards » |
 | 10 | Partage | Partage d'un board avec des droits (lecture / écriture) |
 | 11 | Déploiement | En ligne, sur une URL publique en HTTPS |
+| ⭐ | **Chat vocal (bonus)** | Parler avec les autres personnes du board (WebRTC) |
 
 ✅ `SUBJECT.pdf` (le sujet officiel) **a été lu le 11 août 2026**. Le tableau
 ci-dessus est conforme. Le sujet ajoute ces contraintes, à ne pas oublier :
@@ -143,6 +144,7 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 | Comptes | **session en base + cookie signé**, mot de passe **scrypt** | Un JWT ne peut pas être révoqué ; une session en base se supprime à la déconnexion. |
 | Connexion Google | **OAuth 2.0 écrit à la main** (~130 lignes), sans Passport ni bibliothèque | Deux requêtes HTTP et un décodage suffisent. Passport imposerait d'apprendre son système de « stratégies » pour le même résultat. Facultatif : sans les clés, le bouton disparaît. **En service** depuis le 21 août 2026 (projet Google Cloud dédié `tableau-blanc`). |
 | Tests | `node --test` (intégré) + **jsdom** | Aucune dépendance de test lourde. jsdom permet de tester les pages sans navigateur. |
+| Chat vocal (bonus) | **WebRTC en direct**, signalisation sur le Socket.IO existant | Le son ne passe pas par le serveur : aucun coût de bande passante, et rien à héberger en plus. En « mesh » (chacun relié à chacun), suffisant à quelques participants ; un serveur de mélange audio (« SFU ») serait hors sujet ici. |
 | Hébergement | **Render** (offre gratuite, région Frankfurt) | Gère les WebSockets et fournit le HTTPS. |
 | Base en ligne | **Neon PostgreSQL** (offre gratuite, région Frankfurt) | Base `tableau_blanc`, *connection pooling* activé. Même région que Render pour limiter la latence. La base gratuite de Render étant supprimée après 30 jours, elle a été écartée. |
 
@@ -174,12 +176,15 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   HTTPS, limitation de débit, configuration par variables d'environnement.
 - ✅ Tests : 37 tests unitaires, 31 vérifications de bout en bout,
   39 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
-  PostgreSQL, 24 sur la connexion Google, test de charge à 6 participants.
+  PostgreSQL, 24 sur la connexion Google, 21 sur le chat vocal (2 navigateurs
+  réels), test de charge à 6 participants.
   **Tous au vert.**
 - ✅ Documentation : `README.md` (architecture + diagrammes de séquence),
   `docs/choix-techniques.md`, `docs/deploiement.md`.
 - ✅ Connexion Google **en service en local** avec les vraies clés
   (projet Google Cloud dédié `tableau-blanc`, testée dans un vrai navigateur).
+- ✅ **Bonus : chat vocal (WebRTC)** entre les personnes du même board —
+  pair-à-pair, signalisation sur la connexion Socket.IO existante.
 - ⏳ Reste : **les 2 variables Google à poser dans Render**, vidéo de démo
   (~3 min), rapport de stage.
 
@@ -225,6 +230,13 @@ Depuis le 21 août 2026, le serveur affiche la cause en clair dans le journal
 (mot de passe masqué) au lieu d'une pile d'appels — détail : `JOURNAL.md`,
 entrée 8.
 
+⚠️ **Chat vocal : le micro n'est autorisé qu'en « contexte sécurisé ».** Les
+navigateurs ne donnent accès au micro que sur **HTTPS** ou sur
+**`localhost`**. En local, `http://localhost:5173` fonctionne ; mais ouvrir le
+site depuis un autre poste du réseau (`http://192.168.x.x:5173`) fera échouer
+le micro, avec le message d'erreur prévu. En ligne, Render est en HTTPS :
+aucun problème.
+
 **Deux limites de l'hébergement gratuit à ne pas oublier**
 
 1. Le serveur **s'endort après 15 min** sans visite ; le réveil prend
@@ -256,6 +268,7 @@ C:\Stage_1337
 │   ├── e2e.js         ← test de bout en bout (2 utilisateurs)
 │   ├── smoke-home.js  ← test de la page d'accueil (DOM simulé)
 │   ├── smoke-dom.js   ← test de la page tableau (DOM simulé)
+│   ├── test-voice.js  ← test du chat vocal (2 Chromium, faux micro)
 │   └── load-test.js   ← test de charge (6 participants)
 ├── client/            ← navigateur
 │   ├── index.html     ← page d'accueil (connexion + mes boards)
@@ -266,7 +279,7 @@ C:\Stage_1337
 │       ├── api.js     ← appels HTTP au serveur
 │       ├── style.css
 │       ├── pages/     ← home.js, board.js
-│       └── board/     ← camera, shapes, store, render, tools, net, exporters
+│       └── board/     ← camera, shapes, store, render, tools, net, exporters, voice
 └── server/            ← Node.js
     ├── .env.example   ← configuration à copier en .env
     ├── test/
@@ -319,6 +332,7 @@ Pour arrêter : `Ctrl + C` dans le terminal.
 | `npm run load` | Test de charge à 6 participants |
 | `npm run test:pg` | Vérifie le serveur sur un **vrai PostgreSQL** temporaire |
 | `npm run test:google` | Vérifie la connexion Google sans compte Google |
+| `npm run voice` | **Chat vocal** : 2 Chromium avec un faux micro, appel complet |
 | `npm run build` | Compile le client pour la mise en ligne |
 | `npm start` | Serveur seul, servant le client compilé (mode production) |
 

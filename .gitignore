@@ -21,3 +21,6 @@ Thumbs.db
 
 # Capture d'ecran produite par le test navigateur
 scripts/derniere-capture.png
+
+# Captures produites par les tests navigateur
+scripts/derniere-capture-audio.png
