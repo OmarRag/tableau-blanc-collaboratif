@@ -220,6 +220,39 @@ async function main() {
   const publique = await visiteur.call("GET", `/api/boards/${board.id}`);
   check("un board public est visible sans compte", publique.status === 200 && publique.data.role === "view");
 
+  // --- Chat vocal : serveurs de mise en relation --------------------------
+  //
+  // Le navigateur demande au serveur par où passer pour joindre l'autre
+  // personne. Ces identifiants (TURN) étant payants à l'usage, la route est
+  // protégée exactement comme le board lui-même.
+  section("9. Chat vocal : serveurs de mise en relation (ICE)");
+
+  const ice = await alice.call("GET", `/api/boards/${board.id}/ice`);
+  check("le serveur donne la liste des serveurs ICE", ice.status === 200);
+  const serveurs = ice.data?.iceServers;
+  check("la liste n'est pas vide", Array.isArray(serveurs) && serveurs.length > 0);
+  check(
+    "elle contient au moins un serveur STUN",
+    serveurs?.some((s) => [].concat(s.urls).some((u) => String(u).startsWith("stun:")))
+  );
+
+  // Sans TURN configuré (cas du développement), aucun identifiant ne doit
+  // circuler : c'est la preuve qu'on n'envoie pas de secret par défaut.
+  const avecTurn = serveurs?.some((s) => [].concat(s.urls).some((u) => String(u).startsWith("turn")));
+  if (avecTurn) {
+    check("le serveur TURN est fourni avec ses identifiants",
+      serveurs.some((s) => s.username && s.credential));
+  } else {
+    check("sans TURN configuré, aucun identifiant n'est transmis",
+      serveurs.every((s) => !s.username && !s.credential));
+  }
+
+  // Le board d'Alice est encore privé à ce stade du test : un inconnu ne doit
+  // pas pouvoir récupérer les identifiants du relais.
+  const boardPrive = await alice.call("POST", "/api/boards", { title: "Board privé ICE" });
+  const iceInterdit = await visiteur.call("GET", `/api/boards/${boardPrive.data.board.id}/ice`);
+  check("un inconnu n'obtient pas les serveurs d'un board privé (404)", iceInterdit.status === 404);
+
   // --- Connexion avec Google ---------------------------------------------
   //
   // Google n'est pas configuré sur la machine de développement (pas de
@@ -227,7 +260,7 @@ async function main() {
   // annonce simplement que ce moyen de connexion n'est pas disponible, et
   // l'email/mot de passe continue de fonctionner — ce que prouvent les
   // sections précédentes.
-  section("9. Connexion avec Google (non configurée ici)");
+  section("10. Connexion avec Google (non configurée ici)");
   const moyens = await visiteur.call("GET", "/api/auth/me");
   const googleActif = moyens.data?.providers?.google === true;
   check(
@@ -258,7 +291,7 @@ async function main() {
   // serveur, donc deux seaux différents. C'est fidèle à la réalité — un
   // attaquant n'est pas au même endroit que les utilisateurs normaux — et
   // cela évite qu'un test en gêne un autre.
-  section("10. Limitation de débit");
+  section("11. Limitation de débit");
   const attaquant = createHttpClient(BASE.replace("localhost", "127.0.0.1"));
   let bloque = false;
   for (let i = 0; i < 40; i++) {

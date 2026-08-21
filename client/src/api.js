@@ -41,4 +41,12 @@ export const api = {
   invite: (id, email, role) => request("POST", `/api/boards/${id}/members`, { email, role }),
   removeMember: (id, userId) => request("DELETE", `/api/boards/${id}/members/${userId}`),
   rotateShare: (id) => request("POST", `/api/boards/${id}/share/rotate`),
+
+  // Serveurs de mise en relation du chat vocal (STUN, et TURN si le
+  // serveur en a un). Jamais écrits en dur ici : ils viennent du serveur.
+  ice: (id, shareToken) =>
+    request(
+      "GET",
+      `/api/boards/${id}/ice${shareToken ? `?k=${encodeURIComponent(shareToken)}` : ""}`
+    ),
 };

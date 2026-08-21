@@ -8,6 +8,7 @@
 > | Serveur | Render, offre gratuite, région **Frankfurt** |
 > | Base de données | Neon PostgreSQL, offre gratuite, base `tableau_blanc`, *connection pooling*, région **Frankfurt** |
 > | Variables sur Render | `DATABASE_URL`, `SESSION_SECRET`, `NODE_ENV=production` |
+> | Variables facultatives | `GOOGLE_CLIENT_ID/SECRET`, `TURN_URLS/USERNAME/CREDENTIAL` |
 > | Health check | `/healthz` |
 > | Dépôt | https://github.com/OmarRag/tableau-blanc-collaboratif |
 >
@@ -124,6 +125,40 @@ Dans **Environment → Add Environment Variable** :
 | `DATABASE_URL` | `postgresql://…` | Supabase ou Neon (voir la checklist) |
 | `SESSION_SECRET` | une longue chaîne aléatoire | à générer, voir ci-dessous |
 | `NODE_ENV` | `production` | à taper tel quel |
+
+**Facultatives** — chacune peut être omise, la fonctionnalité se désactive
+alors proprement :
+
+| Nom | Valeur | Effet si absente |
+|---|---|---|
+| `GOOGLE_CLIENT_ID` | `…apps.googleusercontent.com` | le bouton « Continuer avec Google » ne s'affiche pas |
+| `GOOGLE_CLIENT_SECRET` | `GOCSPX-…` | idem |
+| `TURN_URLS` | `turn:hôte:3478,turns:hôte:5349` | le chat vocal fonctionne avec STUN seul |
+| `TURN_USERNAME` | fourni par le service TURN | idem |
+| `TURN_CREDENTIAL` | fourni par le service TURN | idem |
+| `STUN_URLS` | `stun:hôte:3478` | ceux de Google sont utilisés |
+
+### À quoi sert TURN ?
+
+Le chat vocal fait passer le son **directement** d'un navigateur à l'autre.
+Pour se trouver, ils utilisent un serveur **STUN** — gratuit, il répond
+seulement « voici ton adresse publique ». Cela suffit dans la grande majorité
+des cas.
+
+Mais entre certains réseaux (une personne en 4G, l'autre derrière le pare-feu
+d'une entreprise), la connexion directe est impossible. Il faut alors un
+serveur **TURN**, qui **relaie** le son. Comme il consomme de la bande
+passante, il est presque toujours payant — d'où les variables d'environnement
+plutôt qu'une valeur écrite dans le code.
+
+L'ordre est important et géré automatiquement : le navigateur essaie
+**toujours** la connexion directe en premier, et ne se rabat sur le relais que
+si elle échoue. Ajouter un TURN ne dégrade donc jamais la qualité.
+
+Les identifiants ne sont **jamais** écrits dans le code du navigateur : la
+page les demande au serveur, sur `/api/boards/<id>/ice`, et cette route exige
+d'avoir le droit de voir le board — sinon n'importe qui sur Internet pourrait
+se servir du relais payant.
 
 Pour générer le `SESSION_SECRET`, dans PowerShell :
 

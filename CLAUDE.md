@@ -145,6 +145,7 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 | Connexion Google | **OAuth 2.0 écrit à la main** (~130 lignes), sans Passport ni bibliothèque | Deux requêtes HTTP et un décodage suffisent. Passport imposerait d'apprendre son système de « stratégies » pour le même résultat. Facultatif : sans les clés, le bouton disparaît. **En service** depuis le 21 août 2026 (projet Google Cloud dédié `tableau-blanc`). |
 | Tests | `node --test` (intégré) + **jsdom** | Aucune dépendance de test lourde. jsdom permet de tester les pages sans navigateur. |
 | Chat vocal (bonus) | **WebRTC en direct**, signalisation sur le Socket.IO existant | Le son ne passe pas par le serveur : aucun coût de bande passante, et rien à héberger en plus. En « mesh » (chacun relié à chacun), suffisant à quelques participants ; un serveur de mélange audio (« SFU ») serait hors sujet ici. |
+| Relais audio (facultatif) | **STUN** (Google, gratuit) + **TURN** optionnel par variables d'environnement | STUN suffit dans la plupart des cas. TURN relaie le son quand la connexion directe est impossible (4G ↔ pare-feu d'entreprise) ; payant, donc facultatif et jamais écrit dans le code. La liste est servie par `/api/boards/:id/ice`, route protégée comme le board. |
 | Hébergement | **Render** (offre gratuite, région Frankfurt) | Gère les WebSockets et fournit le HTTPS. |
 | Base en ligne | **Neon PostgreSQL** (offre gratuite, région Frankfurt) | Base `tableau_blanc`, *connection pooling* activé. Même région que Render pour limiter la latence. La base gratuite de Render étant supprimée après 30 jours, elle a été écartée. |
 
@@ -174,9 +175,9 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   boards », partage par email et par lien avec droits lecture/écriture.
 - ✅ Étape 5 — en ligne sur Render (Frankfurt) + Neon PostgreSQL (Frankfurt),
   HTTPS, limitation de débit, configuration par variables d'environnement.
-- ✅ Tests : 37 tests unitaires, 31 vérifications de bout en bout,
+- ✅ Tests : 42 tests unitaires, 35 vérifications de bout en bout,
   39 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
-  PostgreSQL, 24 sur la connexion Google, 21 sur le chat vocal (2 navigateurs
+  PostgreSQL, 24 sur la connexion Google, 23 sur le chat vocal (2 navigateurs
   réels), test de charge à 6 participants.
   **Tous au vert.**
 - ✅ Documentation : `README.md` (architecture + diagrammes de séquence),
@@ -185,6 +186,9 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   (projet Google Cloud dédié `tableau-blanc`, testée dans un vrai navigateur).
 - ✅ **Bonus : chat vocal (WebRTC)** entre les personnes du même board —
   pair-à-pair, signalisation sur la connexion Socket.IO existante.
+  Support **TURN** optionnel (`TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`)
+  pour les réseaux où la liaison directe est impossible ; sans ces variables,
+  STUN seul, comme avant.
 - ⏳ Reste : **les 2 variables Google à poser dans Render**, vidéo de démo
   (~3 min), rapport de stage.
 

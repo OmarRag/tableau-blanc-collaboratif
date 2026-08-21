@@ -148,6 +148,10 @@ function setupVoice() {
 
   voice = createVoice({
     net,
+    // Les serveurs de mise en relation (STUN / TURN) viennent du serveur :
+    // les identifiants TURN sont payants et n'ont rien à faire dans le code
+    // envoyé au navigateur.
+    loadIce: () => api.ice(boardId, shareToken),
     onChange: renderVoice,
     // Le message d'erreur reste affiché plus longtemps que d'habitude : il
     // explique quoi faire, il faut avoir le temps de le lire.

@@ -17,7 +17,10 @@ import os from "node:os";
 import path from "node:path";
 
 const dataDir = path.join(os.tmpdir(), `whiteboard-pg-${process.pid}`);
-const port = 55432;
+// Port du PostgreSQL temporaire. Configurable, car un test interrompu peut
+// laisser une instance en vie qui garde le port : PG_TEST_PORT=55433 permet
+// alors de relancer sans attendre.
+const port = Number(process.env.PG_TEST_PORT || 55432);
 
 let passed = 0;
 let failed = 0;

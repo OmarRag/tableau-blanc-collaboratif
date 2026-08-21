@@ -26,6 +26,7 @@
 | — | Mise en service des vraies clés Google | ✅ Fait en local — reste Render |
 | — | Déploiement Render en échec : diagnostic de la base | ✅ Corrigé |
 | ⭐ | Bonus : chat vocal entre participants (WebRTC) | ✅ Fait |
+| ⭐ | Chat vocal : relais TURN pour les réseaux difficiles | ✅ Fait |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -1015,5 +1016,92 @@ signalisation.
 Suite complète au vert : 32 + 12 unitaires, 30 e2e, 24 Google, 19 PostgreSQL
 réel, 12 + 28 smoke, 22 navigateur réel, **21 chat vocal**, test de charge à
 6 participants.
+
+---
+
+## Entrée 10 — Chat vocal : le relais TURN
+
+**Date :** 21 août 2026
+**Étape :** suite de l'entrée 9
+
+### Le problème à résoudre
+
+L'entrée 9 notait une limite : avec STUN seul, l'appel échoue entre certains
+réseaux. Le cas typique : une personne en **4G**, l'autre derrière le
+**pare-feu d'une entreprise ou d'une université**.
+
+Pourquoi : STUN se contente de dire « voici ton adresse publique ». Cela
+suffit pour que deux box domestiques se trouvent. Mais certains réseaux
+n'acceptent **aucune** connexion entrante, quelle que soit l'adresse. Dans ce
+cas, il faut quelqu'un au milieu qui **relaie** le son : c'est **TURN**.
+
+Image : STUN, c'est un ami qui vous donne le numéro de l'autre. TURN, c'est un
+standard téléphonique qui prend l'appel et le transfère — plus coûteux, mais
+ça passe toujours.
+
+### Ce qui a été fait
+
+- `server/src/config.js` — lecture de `TURN_URLS`, `TURN_USERNAME`,
+  `TURN_CREDENTIAL` (et `STUN_URLS`), plus une fonction `iceServers()` qui
+  construit la liste au format attendu par le navigateur.
+- `server/src/routes.js` — nouvelle route `GET /api/boards/:id/ice`.
+- `client/src/api.js` + `client/src/board/voice.js` — la liste n'est plus
+  écrite en dur : elle est demandée au serveur au moment de rejoindre l'appel.
+- `server/.env.example` et `docs/deploiement.md` — les variables documentées.
+
+### Les choix techniques et pourquoi
+
+**Pourquoi la route est rattachée à un board, et pas une simple `/api/ice`.**
+C'était la demande de départ, et c'est le point qui mérite d'être expliqué :
+les identifiants TURN se paient **à l'usage**. Une adresse `/api/ice` ouverte
+à tous permettrait à n'importe qui sur Internet de récupérer ces identifiants
+et de s'en servir comme d'un relais gratuit — la facture serait pour nous.
+La route exige donc le même droit que pour **ouvrir le board** : exactement le
+contrôle qui existait déjà, réutilisé tel quel. Un test vérifie qu'un inconnu
+reçoit bien un 404 sur un board privé.
+
+**Pourquoi ne rien écrire dans le code du navigateur.** Tout ce qui part au
+navigateur est lisible par n'importe qui (clic droit → code source). Un secret
+n'y a jamais sa place. C'est la même règle que pour `GOOGLE_CLIENT_SECRET`.
+
+**L'ordre de la liste compte, et il est gratuit.** Le navigateur essaie
+**toujours** la connexion directe en premier et ne bascule sur le relais que
+si elle échoue. Ajouter un TURN ne dégrade donc jamais la qualité ni la
+latence : c'est un filet de sécurité, pas un détour.
+
+**Une liste de secours côté client.** Si l'API ne répond pas, on retombe sur
+les STUN de Google plutôt que d'empêcher tout appel. Mieux vaut un appel qui
+marche entre voisins que pas d'appel du tout.
+
+**Rien ne change sans les variables.** `TURN_URLS` absente → la liste ne
+contient que du STUN, et **aucun identifiant n'est transmis**. Un test le
+vérifie explicitement : c'est la preuve qu'on n'envoie pas de secret par
+défaut.
+
+### Les problèmes rencontrés et comment on les a résolus
+
+- **Problème :** comment tester les deux cas — avec et sans TURN — alors que
+  la configuration est lue une seule fois, au démarrage du serveur ?
+  **Résolu :** `server/test/ice.test.js` relance un petit processus Node neuf
+  pour chaque cas, avec l'environnement voulu. 5 tests : sans TURN, avec TURN,
+  plusieurs adresses séparées par des virgules, variables vides ignorées, et
+  remplacement des STUN.
+- **Vérification réelle :** le chat vocal a été relancé dans deux Chromium
+  **avec un TURN configuré** (adresse volontairement bidon). L'appel s'établit
+  quand même par la connexion directe — ce qui prouve que la présence d'un
+  TURN inutilisable ne casse rien. Puis la configuration a été retirée.
+- **Problème (sans rapport avec le code) :** `npm run test:pg` échouait avec
+  « Erreur pendant le test PostgreSQL : undefined ». Cause : un PostgreSQL
+  temporaire, laissé par un test interrompu plus tôt, occupait encore le port
+  55432.
+  **Résolu :** le port est devenu configurable — `PG_TEST_PORT=55437
+  npm run test:pg` — ce qui permet de relancer sans attendre. 19/19 au vert
+  sur un port libre.
+
+### Les tests
+
+Suite complète au vert : 42 + 12 unitaires, 35 e2e (dont 5 nouvelles sur la
+route ICE), 24 Google, 19 PostgreSQL réel, 12 + 28 smoke, 22 navigateur réel,
+**23 chat vocal**, test de charge à 6 participants, et le build de production.
 
 ---

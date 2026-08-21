@@ -19,6 +19,17 @@
 //                     sous laquelle je te vois depuis Internet ». Nécessaire
 //                     car la plupart des ordinateurs sont derrière une box
 //                     et ne connaissent pas leur propre adresse publique.
+//   • TURN          : un serveur qui RELAIE le son quand les deux personnes
+//                     n'arrivent pas à se joindre directement (réseau
+//                     d'entreprise, certaines 4G, pare-feu strict). C'est le
+//                     filet de sécurité : le navigateur ne s'en sert que si
+//                     la connexion directe échoue. Facultatif — s'il n'est
+//                     pas configuré sur le serveur, on fonctionne comme avant
+//                     avec STUN seul.
+//
+// La liste de ces serveurs n'est PAS écrite ici : elle est demandée au
+// serveur au moment de rejoindre l'appel. Les identifiants TURN sont payants
+// à l'usage, ils n'ont donc rien à faire dans le code envoyé au navigateur.
 //
 // ── Qui appelle qui ? ─────────────────────────────────────────────────────
 //
@@ -34,7 +45,12 @@
 // 6 liaisons. C'est largement suffisant ici, et cela évite un serveur de
 // mélange audio (« SFU ») qui serait très lourd à écrire.
 
-const STUN = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+// Liste de secours, utilisée seulement si le serveur ne répond pas. Sans
+// elle, une panne de l'API empêcherait tout appel, même entre deux personnes
+// sur le même réseau.
+const ICE_PAR_DEFAUT = [
+  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+];
 
 // Au-dessus de ce niveau sonore (0 à 1), on considère que la personne parle.
 const SEUIL_PAROLE = 0.045;
@@ -61,10 +77,11 @@ export function voiceSupported() {
 /**
  * @param {object} options
  * @param {object} options.net        connexion Socket.IO déjà ouverte (net.js)
+ * @param {Function} options.loadIce  va chercher la liste des serveurs STUN/TURN
  * @param {Function} options.onChange appelé à chaque changement à afficher
  * @param {Function} options.onError  appelé avec un message lisible en cas d'échec
  */
-export function createVoice({ net, onChange, onError }) {
+export function createVoice({ net, loadIce, onChange, onError }) {
   /** socketId → { pc, audio, name, color, speaking, analyser } */
   const peers = new Map();
   let localStream = null;
@@ -73,6 +90,7 @@ export function createVoice({ net, onChange, onError }) {
   let jeParle = false;
   let audioContext = null;
   let boucleAnalyse = null;
+  let iceServers = ICE_PAR_DEFAUT;
 
   // --- Écoute des messages du serveur ------------------------------------
 
@@ -142,18 +160,30 @@ export function createVoice({ net, onChange, onError }) {
       return;
     }
 
+    // 2) Demander au serveur par où passer (STUN, et TURN s'il en a un).
+    //    En cas d'échec, on garde la liste de secours : mieux vaut un appel
+    //    qui marche entre voisins que pas d'appel du tout.
+    try {
+      const reponse = await loadIce?.();
+      if (Array.isArray(reponse?.iceServers) && reponse.iceServers.length) {
+        iceServers = reponse.iceServers;
+      }
+    } catch (error) {
+      console.warn("[audio] serveurs de relais indisponibles, STUN par défaut :", error.message);
+    }
+
     joined = true;
     micOn = true;
     surveillerMonNiveauSonore();
 
-    // 2) Prévenir le serveur, et récupérer la liste de ceux déjà présents.
+    // 3) Prévenir le serveur, et récupérer la liste de ceux déjà présents.
     net.emit("voice:join", {}, async (reponse) => {
       if (!reponse?.ok) {
         onError?.("L'appel audio n'a pas pu démarrer.");
         leave();
         return;
       }
-      // 3) J'appelle chacun d'eux (voir « Qui appelle qui ? » en haut).
+      // 4) J'appelle chacun d'eux (voir « Qui appelle qui ? » en haut).
       for (const peer of reponse.peers || []) {
         const entree = inscrire(peer);
         await appeler(peer.socketId, entree);
@@ -202,7 +232,7 @@ export function createVoice({ net, onChange, onError }) {
       return existant;
     }
 
-    const pc = new RTCPeerConnection({ iceServers: STUN });
+    const pc = new RTCPeerConnection({ iceServers });
 
     // On donne notre micro à cette liaison.
     if (localStream) for (const track of localStream.getTracks()) pc.addTrack(track, localStream);

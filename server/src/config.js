@@ -26,6 +26,18 @@ if (fs.existsSync(envFile)) {
 
 const databaseUrl = (process.env.DATABASE_URL || "").trim();
 
+/**
+ * Découpe une variable d'environnement contenant plusieurs adresses séparées
+ * par des virgules. Exemple :
+ *   TURN_URLS=turn:exemple.com:3478,turns:exemple.com:5349
+ */
+function liste(valeur) {
+  return String(valeur || "")
+    .split(",")
+    .map((element) => element.trim())
+    .filter(Boolean);
+}
+
 export const config = {
   rootDir,
   // Render impose le port par la variable PORT : on doit l'écouter, sinon
@@ -62,6 +74,31 @@ export const config = {
     },
   },
 
+  // --- Serveurs de mise en relation du chat vocal (« ICE ») --------------
+  //
+  // STUN : serveur qui répond seulement « voici l'adresse sous laquelle je te
+  //        vois depuis Internet ». Gratuit, aucune donnée ne transite.
+  //        Suffit dans la grande majorité des cas.
+  //
+  // TURN : serveur qui RELAIE le son quand les deux personnes n'arrivent pas
+  //        à se joindre directement (réseaux d'entreprise, certaines 4G,
+  //        pare-feu stricts). C'est le filet de sécurité. Il consomme de la
+  //        bande passante, donc il est presque toujours payant — d'où sa
+  //        configuration par variables d'environnement, et non en dur.
+  //
+  // Si TURN_URLS est absente, on garde le comportement d'avant : STUN seul.
+  ice: {
+    stunUrls: liste(process.env.STUN_URLS).length
+      ? liste(process.env.STUN_URLS)
+      : ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
+    turnUrls: liste(process.env.TURN_URLS),
+    turnUsername: (process.env.TURN_USERNAME || "").trim(),
+    turnCredential: (process.env.TURN_CREDENTIAL || "").trim(),
+    get turnEnabled() {
+      return this.turnUrls.length > 0;
+    },
+  },
+
   clientOrigin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
   isProduction: process.env.NODE_ENV === "production",
   // Dossier des fichiers compilés du client, servis en production.
@@ -78,4 +115,23 @@ if (config.isProduction && config.sessionSecret.startsWith("dev-secret")) {
       "Valeur : une longue chaîne aléatoire, par exemple le résultat de\n" +
       '  node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
   );
+}
+
+/**
+ * La liste des serveurs à donner à WebRTC, dans le format qu'il attend.
+ *
+ * L'ordre compte : le navigateur essaie d'abord la connexion directe (STUN),
+ * et ne se rabat sur le relais (TURN) que s'il n'y arrive pas. On ne perd
+ * donc rien en qualité, TURN n'est qu'un filet de sécurité.
+ */
+export function iceServers() {
+  const serveurs = [{ urls: config.ice.stunUrls }];
+  if (config.ice.turnEnabled) {
+    serveurs.push({
+      urls: config.ice.turnUrls,
+      username: config.ice.turnUsername,
+      credential: config.ice.turnCredential,
+    });
+  }
+  return serveurs;
 }

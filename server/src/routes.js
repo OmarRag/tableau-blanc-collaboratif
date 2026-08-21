@@ -31,7 +31,7 @@ import {
 } from "./boards.js";
 import { getBoard, roleFor, canView, canAdmin } from "./permissions.js";
 import { rateLimit } from "./rateLimit.js";
-import { config } from "./config.js";
+import { config, iceServers } from "./config.js";
 
 export const api = express.Router();
 
@@ -187,6 +187,25 @@ api.post("/boards/:id/share/rotate", requireUser, async (req, res) => {
   if (!canAdmin(await roleFor(board, req.user)))
     return res.status(403).json({ error: "Accès refusé." });
   res.json({ shareToken: await rotateShareToken(board.id) });
+});
+
+// --- Chat vocal : serveurs de mise en relation ----------------------------
+//
+// Le navigateur a besoin de savoir par où passer pour joindre l'autre
+// personne. Cette liste contient un serveur STUN (gratuit) et, si le serveur
+// est configuré pour, un serveur TURN — qui relaie le son quand la connexion
+// directe est impossible.
+//
+// Pourquoi cette route est rattachée à un board plutôt que d'être publique :
+// les identifiants TURN sont payants à l'usage. Une adresse `/api/ice`
+// ouverte à tous permettrait à n'importe qui sur Internet de s'en servir
+// comme d'un relais gratuit. Ici, il faut au minimum avoir le droit de VOIR
+// le board — exactement le même contrôle que pour l'ouvrir.
+api.get("/boards/:id/ice", async (req, res) => {
+  const board = await getBoard(req.params.id);
+  const role = await roleFor(board, req.user, req.query.k || null);
+  if (!canView(role)) return res.status(404).json({ error: "Board introuvable." });
+  res.json({ iceServers: iceServers() });
 });
 
 // --- Export --------------------------------------------------------------

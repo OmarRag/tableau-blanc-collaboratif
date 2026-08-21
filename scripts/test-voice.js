@@ -106,6 +106,18 @@ async function main() {
   // --- 3. Les deux rejoignent l'appel ------------------------------------
   section("3. Les deux rejoignent l'appel");
 
+  // On surveille l'appel à l'API : le navigateur doit VRAIMENT demander au
+  // serveur par où passer, plutôt que d'utiliser une liste écrite en dur.
+  let iceDemande = null;
+  pageA.on("response", async (reponse) => {
+    if (!reponse.url().includes("/ice")) return;
+    try {
+      iceDemande = { status: reponse.status(), corps: await reponse.json() };
+    } catch {
+      iceDemande = { status: reponse.status(), corps: null };
+    }
+  });
+
   await pageA.click("#btn-voice");
   await pageA.waitForFunction(() =>
     document.getElementById("btn-voice")?.textContent.includes("Quitter")
@@ -118,6 +130,22 @@ async function main() {
     document.getElementById("btn-voice")?.textContent.includes("Quitter")
   );
   check("Bob a rejoint aussi", true);
+
+  check(
+    "le navigateur a demandé les serveurs de relais au serveur",
+    iceDemande?.status === 200,
+    JSON.stringify(iceDemande)
+  );
+  const listeRecue = iceDemande?.corps?.iceServers;
+  check(
+    "la liste reçue contient au moins un serveur STUN",
+    Array.isArray(listeRecue) &&
+      listeRecue.some((s) => [].concat(s.urls).some((u) => String(u).startsWith("stun:")))
+  );
+  const turnPresent =
+    Array.isArray(listeRecue) &&
+    listeRecue.some((s) => [].concat(s.urls).some((u) => String(u).startsWith("turn")));
+  console.log(`  ℹ serveur TURN ${turnPresent ? "configuré" : "absent (STUN seul)"} sur ce serveur`);
 
   // --- 4. La liaison directe s'établit-elle vraiment ? -------------------
   section("4. La liaison pair-à-pair");
