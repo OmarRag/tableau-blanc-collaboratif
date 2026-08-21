@@ -172,7 +172,7 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   boards », partage par email et par lien avec droits lecture/écriture.
 - ✅ Étape 5 — en ligne sur Render (Frankfurt) + Neon PostgreSQL (Frankfurt),
   HTTPS, limitation de débit, configuration par variables d'environnement.
-- ✅ Tests : 30 tests unitaires, 31 vérifications de bout en bout,
+- ✅ Tests : 37 tests unitaires, 31 vérifications de bout en bout,
   39 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
   PostgreSQL, 24 sur la connexion Google, test de charge à 6 participants.
   **Tous au vert.**
@@ -215,6 +215,15 @@ inscrits dans la liste **« Test users »** de la Console peuvent se connecter
 ⚠️ Les **valeurs** des deux clés ne sont écrites que dans `server/.env`, qui
 est ignoré par Git. Aucun fichier suivi par Git ne doit jamais contenir autre
 chose que les **noms** des variables.
+
+⚠️ **Si un déploiement Render échoue au démarrage sur une erreur PostgreSQL**
+(`exited with status 1`) : ce n'est **pas** la migration du schéma Google —
+vérifié sur la vraie base Neon, sur une base à l'ancien schéma remplie de
+comptes, et en rejouant toute la chaîne Render. La cause est la **connexion** :
+`DATABASE_URL` dans Render pointe sur un projet Neon supprimé ou recréé.
+Depuis le 21 août 2026, le serveur affiche la cause en clair dans le journal
+(mot de passe masqué) au lieu d'une pile d'appels — détail : `JOURNAL.md`,
+entrée 8.
 
 **Deux limites de l'hébergement gratuit à ne pas oublier**
 

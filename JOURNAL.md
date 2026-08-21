@@ -24,6 +24,7 @@
 | 5 | Mise en ligne | ✅ Fait — site en ligne |
 | — | Connexion avec Google (OAuth 2.0) | ✅ Fait |
 | — | Mise en service des vraies clés Google | ✅ Fait en local — reste Render |
+| — | Déploiement Render en échec : diagnostic de la base | ✅ Corrigé |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -791,5 +792,96 @@ local, puisque `server/.env` contient les deux variables.
 npm run smoke          # vérifie la cohérence bouton ↔ configuration serveur
 npm run test:google    # 24 vérifications, sans compte Google
 ```
+
+---
+
+## Entrée 8 — Le déploiement Render échouait : rendre l'erreur lisible
+
+**Date :** 21 août 2026
+**Étape :** dépannage, après l'entrée 7
+
+### Le symptôme
+
+Le déploiement Render s'arrêtait au démarrage sur une erreur PostgreSQL, avec
+pour seule indication `exited with status 1` et une pile d'appels. Impossible
+de savoir quoi corriger.
+
+Hypothèse de départ : la migration du schéma Google (`google_id`) serait
+incompatible avec les tables déjà créées en ligne.
+
+### Ce qu'on a cherché — et ce qu'on a trouvé
+
+**La migration n'est pas en cause.** Vérifié de trois façons :
+
+1. `initDb()` lancé sur la **vraie base Neon** → réussit.
+2. Une base recréée dans l'**état d'avant Google** (ancien schéma, 3 comptes
+   dedans), sur un vrai PostgreSQL → la migration ajoute `google_id`, crée
+   l'index, et **les 3 comptes sont conservés**.
+3. La **chaîne Render complète rejouée à l'identique** (clone neuf du dépôt,
+   `npm run install:all && npm run build`, puis `npm start` avec
+   `NODE_ENV=production` et la vraie `DATABASE_URL`) → le serveur démarre et
+   reste vivant.
+
+**La vraie cause est ailleurs : la connexion à la base.** En rejouant les
+différents cas de panne, tous donnent exactement le symptôme observé —
+« erreur PostgreSQL, status 1 » :
+
+| Cas | Erreur PostgreSQL |
+|---|---|
+| URL d'un projet Neon supprimé ou recréé | `28P01` mot de passe refusé |
+| Mot de passe faux dans `DATABASE_URL` | `28P01` mot de passe refusé |
+| Nom de base inexistant | `3D000` base inexistante |
+
+Autre indice qui va dans ce sens : la base `tableau_blanc` est **vide**
+(0 compte), alors que le journal notait qu'elle contenait de vrais comptes.
+Elle a donc été **recréée** entre-temps — et la `DATABASE_URL` enregistrée
+dans Render pointe très probablement encore sur **l'ancienne**.
+
+### La correction
+
+On ne pouvait pas corriger la variable de Render depuis le code. En revanche,
+le vrai défaut — **une panne de base illisible dans le journal** — lui, se
+corrige. Trois changements :
+
+1. **Un diagnostic en français au démarrage** (`server/src/index.js`). Au lieu
+   d'une pile d'appels, le journal affiche la cause, l'URL utilisée **mot de
+   passe masqué**, et où aller la corriger :
+
+   ```
+   [base] IMPOSSIBLE DE DÉMARRER : la base de données est inaccessible.
+   [base] Cause : le mot de passe (ou l'utilisateur) de DATABASE_URL est refusé.
+   [base] DATABASE_URL utilisée : postgresql://neondb_owner:***@ep-….neon.tech/tableau_blanc
+   [base] À vérifier sur Render → Environment : …
+   ```
+
+2. **Des réessais au démarrage** (`server/src/db.js`). Neon met la base en
+   veille après quelques minutes ; la première connexion d'un déploiement
+   tombe donc souvent pendant ce réveil. On réessaie 5 fois, avec une attente
+   qui s'allonge. Mais **seulement pour les pannes passagères** : un mot de
+   passe faux échoue tout de suite, car il ne se réparera pas tout seul.
+
+3. **Un délai de connexion de 10 s** (`connectionTimeoutMillis`). Sans lui,
+   une base injoignable faisait attendre le serveur indéfiniment : Render
+   concluait « démarrage trop long » sans jamais dire pourquoi.
+
+### La leçon retenue
+
+Le premier réflexe était de suspecter la **migration**, parce que c'était le
+dernier changement en date. C'était faux. Reproduire l'environnement réel — la
+vraie base, l'ancien schéma avec ses données, la chaîne de déploiement
+complète — a montré que le code marchait, et déplacé la recherche vers la
+**configuration**. *Le dernier changement n'est pas toujours le coupable.*
+
+Second point : une erreur qu'on ne peut pas lire coûte plus cher que le bug
+lui-même. Le message clair vaut le quart d'heure passé à l'écrire.
+
+### Les tests
+
+7 tests unitaires ajoutés (`server/test/diagnostic-db.test.js`) : chaque cause
+d'erreur donne bien la bonne phrase, et **le mot de passe n'apparaît jamais**
+dans l'URL affichée.
+
+Suite complète au vert : 25 + 12 unitaires, 30 e2e, 24 Google, 19 PostgreSQL
+réel, 12 + 28 smoke, 22 navigateur réel, test de charge à 6 participants.
 
 ---

@@ -7,11 +7,31 @@ import { config } from "./config.js";
 import { api } from "./routes.js";
 import { googleAuth } from "./oauthGoogle.js";
 import { setupRealtime } from "./realtime.js";
-import { initDb, dialect, closeDb } from "./db.js";
+import { initDb, dialect, closeDb, expliquerErreurPostgres, urlSansMotDePasse } from "./db.js";
 
 // La base doit être prête AVANT d'accepter la première requête : avec
 // PostgreSQL, la connexion et la création des tables prennent un instant.
-await initDb();
+//
+// Si elle ne répond pas, le serveur ne peut pas démarrer — mais il doit dire
+// POURQUOI. Sans ce bloc, l'hébergeur n'affiche qu'une pile d'appels et un
+// « exited with status 1 », ce qui ne permet pas de savoir quoi corriger.
+try {
+  await initDb();
+} catch (error) {
+  console.error("");
+  console.error("[base] IMPOSSIBLE DE DÉMARRER : la base de données est inaccessible.");
+  console.error(`[base] Cause : ${expliquerErreurPostgres(error)}`);
+  if (config.databaseUrl) {
+    console.error(`[base] DATABASE_URL utilisée : ${urlSansMotDePasse(config.databaseUrl)}`);
+    console.error("[base] À vérifier sur Render → Environment : que DATABASE_URL soit bien");
+    console.error("[base] celle affichée par Neon (Dashboard → Connection string). Une URL");
+    console.error("[base] d'un projet Neon supprimé ou recréé donne exactement cette erreur.");
+  } else {
+    console.error("[base] Aucune DATABASE_URL fournie : le serveur attendait SQLite.");
+  }
+  console.error(`[base] Détail technique : ${error.code || ""} ${error.message}`);
+  process.exit(1);
+}
 
 const app = express();
 

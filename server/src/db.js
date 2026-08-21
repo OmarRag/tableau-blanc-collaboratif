@@ -163,6 +163,54 @@ async function initSqlite() {
   return { dialect };
 }
 
+/**
+ * Traduit une erreur PostgreSQL en une phrase compréhensible, avec ce qu'il
+ * faut aller corriger. Sans cela, l'hébergeur n'affiche qu'une pile d'appels
+ * illisible et on ne sait pas si le problème vient du mot de passe, de
+ * l'adresse ou du nom de la base.
+ *
+ * Les codes viennent de la documentation PostgreSQL (« SQLSTATE »).
+ */
+export function expliquerErreurPostgres(error) {
+  const code = error?.code;
+  const causes = {
+    "28P01": "le mot de passe (ou l'utilisateur) de DATABASE_URL est refusé.",
+    "28000": "l'utilisateur de DATABASE_URL est refusé par la base.",
+    "3D000": "la base nommée dans DATABASE_URL n'existe pas.",
+    ENOTFOUND: "l'adresse du serveur dans DATABASE_URL est introuvable (nom d'hôte inconnu).",
+    ECONNREFUSED: "le serveur de base de données refuse la connexion.",
+    ETIMEDOUT: "le serveur de base de données ne répond pas (délai dépassé).",
+    "57P03": "la base démarre encore (Neon sort de veille). Réessayer suffit en général.",
+    "53300": "trop de connexions ouvertes sur la base.",
+  };
+  return causes[code] || error?.message || "cause inconnue.";
+}
+
+/**
+ * Cache le mot de passe d'une URL de base, pour pouvoir l'afficher dans un
+ * journal sans faire fuiter le secret.
+ */
+export function urlSansMotDePasse(url) {
+  try {
+    const u = new URL(url);
+    if (u.password) u.password = "***";
+    return u.toString();
+  } catch {
+    return "(DATABASE_URL illisible)";
+  }
+}
+
+const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Cette erreur peut-elle disparaître d'elle-même ? Oui pour un réveil de la
+ * base ou une coupure réseau, non pour un mot de passe faux.
+ */
+function estPassagere(error) {
+  return ["57P03", "53300", "08006", "08001", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED"]
+    .includes(error?.code);
+}
+
 async function initPostgres() {
   const pg = (await import("pg")).default;
 
@@ -182,10 +230,38 @@ async function initPostgres() {
     // Les offres gratuites limitent fortement le nombre de connexions.
     max: 5,
     idleTimeoutMillis: 30_000,
+    // Sans ce délai, une base injoignable ferait attendre le serveur
+    // indéfiniment : l'hébergeur conclurait « démarrage trop long » sans
+    // jamais dire pourquoi. Avec lui, on obtient une vraie erreur, qu'on peut
+    // expliquer et réessayer.
+    connectionTimeoutMillis: 10_000,
   });
 
-  await pgPool.query(schemaSql());
-  return { dialect };
+  // Neon met la base en veille après quelques minutes d'inactivité. La
+  // première connexion d'un déploiement tombe donc souvent pendant ce réveil.
+  // On réessaie quelques fois, avec une attente qui s'allonge, avant
+  // d'abandonner : sans cela un déploiement parfaitement valide échoue.
+  const ESSAIS = 5;
+  for (let essai = 1; ; essai++) {
+    try {
+      await pgPool.query(schemaSql());
+      return { dialect };
+    } catch (error) {
+      // Réessayer n'a de sens que pour un problème passager (réveil, réseau).
+      // Un mot de passe faux ou une base inexistante ne se répareront pas
+      // tout seuls : on échoue tout de suite, avec le bon message.
+      if (essai >= ESSAIS || !estPassagere(error)) {
+        error.explication = expliquerErreurPostgres(error);
+        throw error;
+      }
+      const pause = essai * 2000;
+      console.log(
+        `[base] tentative ${essai}/${ESSAIS} échouée : ${expliquerErreurPostgres(error)}` +
+          ` Nouvel essai dans ${pause / 1000} s…`
+      );
+      await attendre(pause);
+    }
+  }
 }
 
 /** Ferme proprement la base (utilisé par les tests et à l'arrêt du serveur). */
