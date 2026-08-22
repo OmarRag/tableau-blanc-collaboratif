@@ -175,7 +175,7 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   boards », partage par email et par lien avec droits lecture/écriture.
 - ✅ Étape 5 — en ligne sur Render (Frankfurt) + Neon PostgreSQL (Frankfurt),
   HTTPS, limitation de débit, configuration par variables d'environnement.
-- ✅ Tests : 42 tests unitaires, 35 vérifications de bout en bout,
+- ✅ Tests : 49 tests unitaires, 35 vérifications de bout en bout,
   39 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
   PostgreSQL, 24 sur la connexion Google, 23 sur le chat vocal (2 navigateurs
   réels), test de charge à 6 participants.

@@ -1100,7 +1100,7 @@ défaut.
 
 ### Les tests
 
-Suite complète au vert : 42 + 12 unitaires, 35 e2e (dont 5 nouvelles sur la
+Suite complète au vert : 37 + 12 unitaires, 35 e2e (dont 5 nouvelles sur la
 route ICE), 24 Google, 19 PostgreSQL réel, 12 + 28 smoke, 22 navigateur réel,
 **23 chat vocal**, test de charge à 6 participants, et le build de production.
 
