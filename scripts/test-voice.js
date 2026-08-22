@@ -34,7 +34,9 @@ async function ouvrirAvecMicro() {
     args: [
       "--use-fake-device-for-media-stream",
       "--use-fake-ui-for-media-stream",
-      "--autoplay-policy=no-user-gesture-required",
+      // Volontairement PAS de « --autoplay-policy=no-user-gesture-required » :
+      // ce drapeau force l'AudioContext à démarrer actif et masquerait
+      // justement le bug qui rendait l'indicateur de parole muet en ligne.
     ],
   });
 }
@@ -197,8 +199,44 @@ async function main() {
     JSON.stringify(sonChezB)
   );
 
-  // --- 5. Couper le micro ------------------------------------------------
-  section("5. Couper et rallumer le micro");
+  // --- 5. L'indicateur « qui parle » -------------------------------------
+  //
+  // C'est LE test qui manquait : le faux micro de Chromium émet un son
+  // continu, donc la pastille DOIT s'allumer. Sans cette vérification, on ne
+  // voyait pas que l'indicateur restait muet en ligne.
+  section("5. L'indicateur « qui parle »");
+
+  const pastillePulse = await pageA
+    .waitForFunction(
+      () => document.querySelectorAll("#voice-peers .voice-dot.speaking").length > 0,
+      null,
+      { timeout: 15000 }
+    )
+    .then(() => true, () => false);
+  check("ma propre pastille s'allume quand le micro capte du son", pastillePulse);
+
+  const vueParBob = await pageB
+    .waitForFunction(
+      () => document.querySelectorAll("#voice-peers .voice-dot.speaking").length > 0,
+      null,
+      { timeout: 15000 }
+    )
+    .then(() => true, () => false);
+  check("Bob voit aussi que quelqu'un parle", vueParBob);
+
+  // Le halo doit être VISIBLE : une classe CSS sans effet ne servirait à rien.
+  const halo = await pageA.evaluate(() => {
+    const dot = document.querySelector("#voice-peers .voice-dot.speaking");
+    return dot ? getComputedStyle(dot).boxShadow : null;
+  });
+  check(
+    "le halo est réellement dessiné (la règle CSS s'applique)",
+    Boolean(halo) && halo !== "none",
+    String(halo)
+  );
+
+  // --- 6. Couper le micro ------------------------------------------------
+  section("6. Couper et rallumer le micro");
 
   await pageA.click("#btn-mic");
   check("le bouton micro passe en « coupé »", (await pageA.textContent("#btn-mic")).includes("🔇"));
@@ -214,8 +252,8 @@ async function main() {
   await pageA.click("#btn-mic");
   check("on peut le rallumer", (await pageA.textContent("#btn-mic")).includes("🎤"));
 
-  // --- 6. Quitter l'appel ------------------------------------------------
-  section("6. Quitter l'appel");
+  // --- 7. Quitter l'appel ------------------------------------------------
+  section("7. Quitter l'appel");
 
   await pageA.click("#btn-voice");
   await pageA.waitForFunction(() =>
@@ -233,8 +271,8 @@ async function main() {
     .then(() => true, () => false);
   check("Bob voit qu'Alice a quitté l'appel", bobSeulAttendu);
 
-  // --- 7. Le tableau continue de fonctionner -----------------------------
-  section("7. Le dessin fonctionne toujours pendant l'appel");
+  // --- 8. Le tableau continue de fonctionner -----------------------------
+  section("8. Le dessin fonctionne toujours pendant l'appel");
 
   // Bob est toujours dans l'appel : on vérifie qu'un dessin d'Alice lui
   // parvient quand même. C'est la preuve que le vocal n'a rien cassé.

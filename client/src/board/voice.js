@@ -52,11 +52,43 @@ const ICE_PAR_DEFAUT = [
   { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
 ];
 
-// Au-dessus de ce niveau sonore (0 à 1), on considère que la personne parle.
-const SEUIL_PAROLE = 0.045;
+// De combien faut-il dépasser le bruit de fond pour qu'on considère que la
+// personne parle ? Valeur volontairement basse : mieux vaut une pastille un
+// peu bavarde qu'une pastille muette.
+const MARGE_PAROLE = 0.012;
+// Plancher absolu, pour qu'un micro très bruyant ne fasse pas pulser en
+// permanence.
+const SEUIL_MINIMUM = 0.008;
 // On garde l'indicateur allumé un court instant après la fin du son, sinon il
 // clignote entre chaque syllabe.
 const MAINTIEN_MS = 400;
+
+/**
+ * Écrit une ligne dans la console du navigateur (F12 → onglet « Console »).
+ *
+ * Toutes les lignes commencent par « [audio] » : il suffit de taper « audio »
+ * dans le filtre de la console pour ne voir que celles-ci. Ces messages
+ * servent à diagnostiquer un appel qui ne marche pas, sans avoir à deviner.
+ */
+function journal(message) {
+  console.log(`[audio] ${message}`);
+}
+
+/**
+ * Mode détaillé : affiche en plus le niveau du micro, une fois par seconde.
+ * Trop bavard pour être actif en permanence. Pour l'allumer, taper dans la
+ * console puis recharger la page :
+ *   localStorage.setItem("audio-debug", "1")
+ * Pour l'éteindre :
+ *   localStorage.removeItem("audio-debug")
+ */
+function debugActif() {
+  try {
+    return localStorage.getItem("audio-debug") === "1";
+  } catch {
+    return false; // navigation privée très stricte
+  }
+}
 
 /**
  * Le navigateur sait-il faire du WebRTC ?
@@ -146,6 +178,7 @@ export function createVoice({ net, loadIce, onChange, onError }) {
 
     // 1) Demander le micro. C'est ici que le navigateur affiche sa fenêtre
     //    « Autoriser l'accès au microphone ? ».
+    journal("demande d'accès au micro…");
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -156,7 +189,18 @@ export function createVoice({ net, loadIce, onChange, onError }) {
         video: false,
       });
     } catch (error) {
+      journal(`MICRO REFUSÉ (${error.name}) : ${error.message}`);
       onError?.(messageMicro(error));
+      return;
+    }
+
+    const pistes = localStream.getAudioTracks();
+    journal(
+      `micro obtenu : ${pistes.length} piste(s)` +
+        pistes.map((p) => ` — « ${p.label || "sans nom"} », état ${p.readyState}`).join("")
+    );
+    if (!pistes.length) {
+      onError?.("Le micro n'a fourni aucune piste audio.");
       return;
     }
 
@@ -168,8 +212,14 @@ export function createVoice({ net, loadIce, onChange, onError }) {
       if (Array.isArray(reponse?.iceServers) && reponse.iceServers.length) {
         iceServers = reponse.iceServers;
       }
+      const adresses = iceServers.flatMap((serveur) => [].concat(serveur.urls));
+      journal(
+        `serveurs de mise en relation : ${adresses.filter((u) => u.startsWith("stun")).length} STUN, ` +
+          `${adresses.filter((u) => u.startsWith("turn")).length} TURN` +
+          (adresses.some((u) => u.startsWith("turn")) ? "" : " (aucun relais : 4G ↔ WiFi peut échouer)")
+      );
     } catch (error) {
-      console.warn("[audio] serveurs de relais indisponibles, STUN par défaut :", error.message);
+      journal(`serveurs de relais indisponibles, STUN par défaut : ${error.message}`);
     }
 
     joined = true;
@@ -183,6 +233,7 @@ export function createVoice({ net, loadIce, onChange, onError }) {
         leave();
         return;
       }
+      journal(`entré dans l'appel — ${(reponse.peers || []).length} personne(s) déjà présente(s)`);
       // 4) J'appelle chacun d'eux (voir « Qui appelle qui ? » en haut).
       for (const peer of reponse.peers || []) {
         const entree = inscrire(peer);
@@ -196,6 +247,7 @@ export function createVoice({ net, loadIce, onChange, onError }) {
 
   function leave() {
     if (!joined) return;
+    journal("sortie de l'appel");
     joined = false;
     net.emit("voice:leave");
     for (const socketId of [...peers.keys()]) fermerPeer(socketId);
@@ -248,6 +300,7 @@ export function createVoice({ net, loadIce, onChange, onError }) {
     pc.ontrack = (event) => {
       const entree = peers.get(peer.socketId);
       if (!entree) return;
+      journal(`son reçu de ${entree.name}`);
       entree.audio.srcObject = event.streams[0];
       entree.audio.play().catch(() => {
         // Certains navigateurs refusent de jouer un son sans geste de
@@ -259,6 +312,7 @@ export function createVoice({ net, loadIce, onChange, onError }) {
     };
 
     pc.onconnectionstatechange = () => {
+      journal(`liaison avec ${peer.name || peer.socketId} : ${pc.connectionState}`);
       if (["failed", "closed"].includes(pc.connectionState)) {
         fermerPeer(peer.socketId);
         onChange?.(etat());
@@ -307,18 +361,49 @@ export function createVoice({ net, loadIce, onChange, onError }) {
 
   // --- « Qui parle ? » ----------------------------------------------------
   //
-  // On mesure le volume du son, en continu, avec un « analyseur » fourni par
-  // le navigateur. Au-dessus d'un seuil, on considère que la personne parle.
+  // On mesure le volume du son en continu. Au-dessus d'un seuil, on considère
+  // que la personne parle.
+  //
+  // DEUX PIÈGES qui rendaient l'indicateur muet, corrigés ici :
+  //
+  // 1. LA MESURE. On regardait la moyenne du SPECTRE DE FRÉQUENCES, sur toute
+  //    la bande (0 à ~24 kHz). Or la voix n'occupe que le bas du spectre :
+  //    les neuf dixièmes des mesures valaient zéro et écrasaient la moyenne.
+  //    Un vrai micro restait donc sous le seuil même en parlant fort. On
+  //    mesure maintenant le volume RÉEL du signal (« RMS », la moyenne de
+  //    l'énergie), qui est la grandeur qu'on entend.
+  //
+  // 2. LE SEUIL FIXE. Un chiffre écrit en dur ne peut pas convenir à la fois
+  //    à un micro de portable et à un casque. Le seuil s'ajuste maintenant
+  //    tout seul au bruit ambiant : on suit le niveau le plus bas observé
+  //    (le silence de la pièce) et on déclenche nettement au-dessus.
   //
   // Mon propre niveau est envoyé aux autres (ils ne peuvent pas le deviner
-  // quand mon micro est coupé). Le niveau des autres, lui, se mesure
-  // directement sur le son reçu : aucun message réseau supplémentaire.
+  // quand mon micro est coupé). Le niveau des autres se mesure directement
+  // sur le son reçu : aucun message réseau supplémentaire.
 
   function contexteAudio() {
     if (!audioContext) {
       const Ctor = window.AudioContext || window.webkitAudioContext;
-      if (!Ctor) return null;
+      if (!Ctor) {
+        journal("ce navigateur n'a pas d'AudioContext : pas d'indicateur de parole");
+        return null;
+      }
       audioContext = new Ctor();
+      journal(`AudioContext créé, état « ${audioContext.state} »`);
+    }
+
+    // TRÈS IMPORTANT. Un AudioContext créé alors que le « geste utilisateur »
+    // a expiré démarre SUSPENDU — et un analyseur suspendu ne mesure que du
+    // silence, donc aucune pastille ne pulse jamais. C'est justement le cas
+    // en ligne : le clic est consommé par la fenêtre « Autoriser le micro ? »,
+    // et le contexte n'est créé qu'APRÈS la réponse. Sur iPhone, il démarre
+    // suspendu dans tous les cas.
+    if (audioContext.state === "suspended") {
+      audioContext
+        .resume()
+        .then(() => journal(`AudioContext réveillé, état « ${audioContext.state} »`))
+        .catch((error) => journal(`impossible de réveiller l'AudioContext : ${error.message}`));
     }
     return audioContext;
   }
@@ -329,28 +414,75 @@ export function createVoice({ net, loadIce, onChange, onError }) {
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
+    // Lisse les variations trop brusques d'une image à l'autre.
+    analyser.smoothingTimeConstant = 0.6;
     source.connect(analyser);
-    return { source, analyser, donnees: new Uint8Array(analyser.frequencyBinCount) };
+    return {
+      source,
+      analyser,
+      donnees: new Uint8Array(analyser.fftSize),
+      plancher: 1, // le silence de la pièce, appris au fil de l'eau
+    };
   }
 
-  /** Volume moyen, ramené entre 0 et 1. */
-  function niveau({ analyser, donnees }) {
-    analyser.getByteFrequencyData(donnees);
-    let total = 0;
-    for (const valeur of donnees) total += valeur;
-    return total / donnees.length / 255;
+  /**
+   * Volume réel du son, entre 0 et 1 (« RMS » = moyenne de l'énergie).
+   *
+   * On lit le signal tel qu'il est dans le temps, et non son spectre : c'est
+   * exactement ce que perçoit l'oreille. 128 est le zéro (le silence), les
+   * valeurs s'en écartent vers le haut et vers le bas.
+   */
+  function niveau(mesure) {
+    const { analyser, donnees } = mesure;
+    analyser.getByteTimeDomainData(donnees);
+    let carre = 0;
+    for (const valeur of donnees) {
+      const ecart = (valeur - 128) / 128;
+      carre += ecart * ecart;
+    }
+    return Math.sqrt(carre / donnees.length);
+  }
+
+  /**
+   * Ce niveau correspond-il à quelqu'un qui parle ?
+   *
+   * Le seuil s'adapte : `plancher` descend vite vers le silence observé et
+   * remonte très lentement, si bien qu'il représente le bruit de fond de la
+   * pièce. On parle quand on est nettement au-dessus.
+   */
+  function ceciEstDeLaParole(mesure, valeur) {
+    mesure.plancher =
+      valeur < mesure.plancher
+        ? valeur // le silence se reconnaît tout de suite
+        : Math.min(mesure.plancher + 0.0004, valeur); // et se réapprend doucement
+    const seuil = Math.max(mesure.plancher + MARGE_PAROLE, SEUIL_MINIMUM);
+    return valeur > seuil;
   }
 
   function surveillerMonNiveauSonore() {
     const mesure = brancherAnalyseur(localStream);
     if (!mesure) return;
+    journal("analyse de mon micro démarrée");
     let depuis = 0;
+    let dernierRapport = 0;
 
     const boucle = () => {
       if (!joined) return;
-      const actif = micOn && niveau(mesure) > SEUIL_PAROLE;
+      const valeur = niveau(mesure);
+      const actif = micOn && ceciEstDeLaParole(mesure, valeur);
       if (actif) depuis = Date.now();
       const parleMaintenant = Date.now() - depuis < MAINTIEN_MS;
+
+      // Affiche le niveau mesuré une fois par seconde, pour pouvoir
+      // diagnostiquer un micro muet depuis la console (F12).
+      if (debugActif() && Date.now() - dernierRapport > 1000) {
+        dernierRapport = Date.now();
+        journal(
+          `niveau du micro ${valeur.toFixed(4)} | bruit de fond ${mesure.plancher.toFixed(4)}` +
+            ` | seuil ${Math.max(mesure.plancher + MARGE_PAROLE, SEUIL_MINIMUM).toFixed(4)}` +
+            ` | ${actif ? "PARLE" : "silence"}`
+        );
+      }
 
       if (parleMaintenant !== jeParle) {
         jeParle = parleMaintenant;
@@ -373,7 +505,7 @@ export function createVoice({ net, loadIce, onChange, onError }) {
     const boucle = () => {
       const encore = peers.get(socketId);
       if (!encore || !joined) return;
-      if (niveau(mesure) > SEUIL_PAROLE) depuis = Date.now();
+      if (ceciEstDeLaParole(mesure, niveau(mesure))) depuis = Date.now();
       const parle = Date.now() - depuis < MAINTIEN_MS;
       if (parle !== encore.speaking) {
         encore.speaking = parle;

@@ -27,6 +27,7 @@
 | — | Déploiement Render en échec : diagnostic de la base | ✅ Corrigé |
 | ⭐ | Bonus : chat vocal entre participants (WebRTC) | ✅ Fait |
 | ⭐ | Chat vocal : relais TURN pour les réseaux difficiles | ✅ Fait |
+| — | Chat vocal : l'indicateur « qui parle » restait muet | ✅ Corrigé |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -1103,5 +1104,94 @@ défaut.
 Suite complète au vert : 37 + 12 unitaires, 35 e2e (dont 5 nouvelles sur la
 route ICE), 24 Google, 19 PostgreSQL réel, 12 + 28 smoke, 22 navigateur réel,
 **23 chat vocal**, test de charge à 6 participants, et le build de production.
+
+---
+
+## Entrée 11 — L'indicateur « qui parle » restait muet en ligne
+
+**Date :** 22 août 2026
+**Étape :** correction, après l'entrée 10
+
+### Le symptôme
+
+Sur le site en ligne, deux personnes rejoignent l'audio, les deux pastilles
+s'affichent — mais **aucune ne pulse**, pas même la sienne, alors que le micro
+a bien été autorisé.
+
+Le fait que **sa propre** pastille ne pulse pas est l'indice décisif : cette
+mesure-là ne fait intervenir aucun réseau. Le problème était donc entièrement
+local, dans la détection du son — pas dans WebRTC, pas dans le TURN.
+
+### Les deux causes
+
+**1. On ne mesurait pas la bonne grandeur.** Le code prenait la moyenne du
+**spectre de fréquences**, sur toute la bande (0 à ~24 kHz). Or la voix
+n'occupe que le bas du spectre : les neuf dixièmes des mesures valaient zéro
+et écrasaient la moyenne. Un vrai micro restait sous le seuil même en parlant
+fort.
+
+Pourquoi les tests ne l'avaient pas vu : le **faux micro** de Chromium émet un
+signal large qui sature les basses fréquences. Mesuré ici, il donne **0,165**
+sur cette moyenne — très au-dessus du seuil de 0,045. Il passait donc
+largement, là où une vraie voix ne passait pas. *Un faux périphérique n'est
+pas représentatif d'un vrai.*
+
+On mesure maintenant le **volume réel du signal** (« RMS » : la moyenne de
+l'énergie, lue dans le temps et non en fréquences). C'est la grandeur que
+perçoit l'oreille.
+
+**2. Le seuil était un chiffre écrit en dur.** 0,045 ne peut pas convenir à la
+fois au micro d'un portable et à un casque. Le seuil s'ajuste désormais tout
+seul : on suit le niveau le plus bas observé — le silence de la pièce — et on
+déclenche nettement au-dessus.
+
+### Une troisième cause, corrigée au passage
+
+Un `AudioContext` créé alors que le « geste utilisateur » a expiré démarre
+**suspendu**, et un analyseur suspendu ne mesure que du silence. C'est
+exactement le cas en ligne : le clic est consommé par la fenêtre « Autoriser
+le micro ? », et le contexte n'est créé qu'**après** la réponse. Sur iPhone,
+il démarre suspendu dans tous les cas.
+
+On appelle donc maintenant `resume()`, et l'état est écrit dans la console.
+
+### Des journaux pour ne plus deviner
+
+Toutes les étapes de l'appel écrivent une ligne préfixée `[audio]` dans la
+console du navigateur : demande du micro, pistes obtenues, serveurs STUN/TURN
+reçus, entrée dans l'appel, état de chaque liaison, son reçu.
+
+Un mode détaillé affiche en plus le niveau du micro une fois par seconde :
+
+```js
+localStorage.setItem("audio-debug", "1")   // puis recharger la page
+```
+
+### Le test qui manquait
+
+Aucun test ne vérifiait que la pastille **s'allume**. Il en existe un
+maintenant — et surtout, le drapeau `--autoplay-policy=no-user-gesture-required`
+a été **retiré** du lancement de Chromium : il forçait l'`AudioContext` à
+démarrer actif et masquait donc précisément ce bug. Trois vérifications
+ajoutées : ma pastille s'allume, l'autre personne le voit, et le halo est
+réellement dessiné (la règle CSS s'applique vraiment).
+
+### La leçon retenue
+
+Deux pièges de test, tous deux du même genre : **un environnement de test plus
+permissif que la réalité ne prouve rien**. Le faux micro était trop généreux,
+et le drapeau autoplay supprimait la contrainte même qu'il fallait respecter.
+À rapprocher de la leçon de l'entrée 3 sur jsdom.
+
+### Le rappel utile
+
+La route ICE n'est pas `/api/ice` mais **`/api/boards/<id>/ice`** — elle est
+volontairement rattachée à un board, pour que les identifiants TURN (payants)
+ne soient pas servis à n'importe qui (voir entrée 10).
+
+### Les tests
+
+Suite complète au vert : 37 + 12 unitaires, 35 e2e, 24 Google, 12 + 28 smoke,
+22 navigateur réel, **26 chat vocal**, test de charge, build de production.
 
 ---

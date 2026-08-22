@@ -177,7 +177,7 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   HTTPS, limitation de débit, configuration par variables d'environnement.
 - ✅ Tests : 49 tests unitaires, 35 vérifications de bout en bout,
   39 vérifications d'interface, 22 dans un vrai Chromium, 19 sur un vrai
-  PostgreSQL, 24 sur la connexion Google, 23 sur le chat vocal (2 navigateurs
+  PostgreSQL, 24 sur la connexion Google, 26 sur le chat vocal (2 navigateurs
   réels), test de charge à 6 participants.
   **Tous au vert.**
 - ✅ Documentation : `README.md` (architecture + diagrammes de séquence),
@@ -233,6 +233,12 @@ comptes, et en rejouant toute la chaîne Render. La cause est la **connexion** :
 Depuis le 21 août 2026, le serveur affiche la cause en clair dans le journal
 (mot de passe masqué) au lieu d'une pile d'appels — détail : `JOURNAL.md`,
 entrée 8.
+
+⚠️ **Chat vocal : la route ICE est `/api/boards/<id>/ice`**, et non
+`/api/ice` — elle est rattachée à un board pour que les identifiants TURN
+(payants) ne soient pas servis à n'importe qui. Pour diagnostiquer un appel,
+ouvrir F12 → Console et filtrer sur `[audio]` ; mode détaillé avec
+`localStorage.setItem("audio-debug", "1")` puis rechargement.
 
 ⚠️ **Chat vocal : le micro n'est autorisé qu'en « contexte sécurisé ».** Les
 navigateurs ne donnent accès au micro que sur **HTTPS** ou sur
