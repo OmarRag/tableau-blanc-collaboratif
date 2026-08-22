@@ -28,6 +28,7 @@
 | ⭐ | Bonus : chat vocal entre participants (WebRTC) | ✅ Fait |
 | ⭐ | Chat vocal : relais TURN pour les réseaux difficiles | ✅ Fait |
 | — | Chat vocal : l'indicateur « qui parle » restait muet | ✅ Corrigé |
+| ⭐ | **Chat vocal validé EN LIGNE en 4G** (réseaux différents) | ✅ Confirmé |
 | 6 | Finitions : vidéo démo, rapport | ⏳ À venir (tests et doc déjà faits) |
 
 ---
@@ -1193,5 +1194,75 @@ ne soient pas servis à n'importe qui (voir entrée 10).
 
 Suite complète au vert : 37 + 12 unitaires, 35 e2e, 24 Google, 12 + 28 smoke,
 22 navigateur réel, **26 chat vocal**, test de charge, build de production.
+
+---
+
+## Entrée 12 — Le chat vocal fonctionne en ligne, en 4G
+
+**Date :** 22 août 2026
+**Étape :** validation du bonus
+
+### Le résultat
+
+**Le chat vocal fonctionne sur le site en ligne, entre deux réseaux
+différents** : un PC en WiFi et un téléphone en 4G. C'est le cas le plus
+difficile — celui qui échouait avant — et il passe.
+
+C'est aussi la validation de bout en bout du bonus : dessin, temps réel,
+comptes, partage **et** voix, tout ensemble, sur l'URL publique en HTTPS.
+
+### Ce qu'il a fallu pour y arriver
+
+Deux choses, indépendantes l'une de l'autre, et il fallait les deux :
+
+**1. Le relais TURN (entrée 10).** Les trois variables du compte Metered sont
+posées sur Render :
+
+```
+TURN_URLS  TURN_USERNAME  TURN_CREDENTIAL
+```
+
+Sans elles, les deux navigateurs ne trouvaient aucun chemin l'un vers l'autre :
+une 4G et un réseau domestique n'acceptent pas de connexion entrante directe.
+STUN seul ne suffit donc pas dans ce cas — c'était la limite annoncée dès
+l'entrée 9, et TURN la lève.
+
+**2. Les corrections du micro (entrée 11, commit `de23916`).** Même une fois la
+liaison établie, l'indicateur « qui parle » restait éteint : on mesurait la
+moyenne du spectre de fréquences au lieu du volume réel, avec un seuil écrit
+en dur, et l'`AudioContext` pouvait démarrer suspendu.
+
+*À retenir :* deux pannes différentes se cumulaient et se masquaient
+mutuellement. Sans TURN, on ne pouvait pas voir que la détection du micro
+était cassée ; avec un micro muet, on ne pouvait pas confirmer que TURN
+marchait. Il a fallu les traiter séparément, chacune avec son propre moyen de
+vérification — le test à deux Chromium pour le micro, l'appel réel en 4G pour
+le relais.
+
+### Ce que ça vaut pour le sujet
+
+Le bonus est désormais **démontrable en vidéo** : deux appareils, deux réseaux,
+sur l'URL publique. À montrer dans la démo (~3 min) prévue à l'étape 6.
+
+### Où en est le chat vocal
+
+| | État |
+|---|---|
+| Appel entre deux onglets, en local | ✅ |
+| Appel entre deux machines du même réseau | ✅ |
+| **Appel PC (WiFi) ↔ téléphone (4G), en ligne** | ✅ **confirmé le 22 août 2026** |
+| Indicateur « qui parle » | ✅ corrigé (entrée 11) |
+| Couper / activer le micro | ✅ |
+| Variables TURN posées sur Render | ✅ |
+
+### Rappels utiles pour la suite
+
+- La route ICE est **`/api/boards/<id>/ice`**, jamais `/api/ice`.
+- Pour diagnostiquer un appel : F12 → Console, filtrer sur `[audio]`.
+  Mode détaillé : `localStorage.setItem("audio-debug", "1")` puis recharger.
+- Le micro n'est accessible qu'en **HTTPS** ou sur **`localhost`**.
+- Le quota gratuit de Metered est limité : à surveiller si la démo est
+  répétée souvent. Le relais n'est utilisé que lorsque la connexion directe
+  échoue, donc un appel entre deux postes du même réseau ne consomme rien.
 
 ---

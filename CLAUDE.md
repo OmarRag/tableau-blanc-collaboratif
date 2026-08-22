@@ -145,7 +145,7 @@ note). Ce n'était pas prévu au départ ; à intégrer à l'étape 6.
 | Connexion Google | **OAuth 2.0 écrit à la main** (~130 lignes), sans Passport ni bibliothèque | Deux requêtes HTTP et un décodage suffisent. Passport imposerait d'apprendre son système de « stratégies » pour le même résultat. Facultatif : sans les clés, le bouton disparaît. **En service** depuis le 21 août 2026 (projet Google Cloud dédié `tableau-blanc`). |
 | Tests | `node --test` (intégré) + **jsdom** | Aucune dépendance de test lourde. jsdom permet de tester les pages sans navigateur. |
 | Chat vocal (bonus) | **WebRTC en direct**, signalisation sur le Socket.IO existant | Le son ne passe pas par le serveur : aucun coût de bande passante, et rien à héberger en plus. En « mesh » (chacun relié à chacun), suffisant à quelques participants ; un serveur de mélange audio (« SFU ») serait hors sujet ici. |
-| Relais audio (facultatif) | **STUN** (Google, gratuit) + **TURN** optionnel par variables d'environnement | STUN suffit dans la plupart des cas. TURN relaie le son quand la connexion directe est impossible (4G ↔ pare-feu d'entreprise) ; payant, donc facultatif et jamais écrit dans le code. La liste est servie par `/api/boards/:id/ice`, route protégée comme le board. |
+| Relais audio | **STUN** (Google, gratuit) + **TURN** (Metered) par variables d'environnement | Le code marche sans TURN, mais **en pratique il est nécessaire** : l'essai PC ↔ 4G a échoué sans lui et réussi avec. Payant, donc jamais écrit dans le code. La liste est servie par `/api/boards/:id/ice`, route protégée comme le board. |
 | Hébergement | **Render** (offre gratuite, région Frankfurt) | Gère les WebSockets et fournit le HTTPS. |
 | Base en ligne | **Neon PostgreSQL** (offre gratuite, région Frankfurt) | Base `tableau_blanc`, *connection pooling* activé. Même région que Render pour limiter la latence. La base gratuite de Render étant supprimée après 30 jours, elle a été écartée. |
 
@@ -186,11 +186,25 @@ Prochaine : étape 6 (vidéo de démo + rapport de stage).**
   (projet Google Cloud dédié `tableau-blanc`, testée dans un vrai navigateur).
 - ✅ **Bonus : chat vocal (WebRTC)** entre les personnes du même board —
   pair-à-pair, signalisation sur la connexion Socket.IO existante.
-  Support **TURN** optionnel (`TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`)
-  pour les réseaux où la liaison directe est impossible ; sans ces variables,
-  STUN seul, comme avant.
+  **Validé EN LIGNE le 22 août 2026, en 4G** : PC en WiFi ↔ téléphone en 4G,
+  sur deux réseaux différents. Relais **TURN** (Metered) posé sur Render, et
+  corrections du micro du commit `de23916`. *Il fallait les deux.*
 - ⏳ Reste : **les 2 variables Google à poser dans Render**, vidéo de démo
   (~3 min), rapport de stage.
+
+**État exact du chat vocal** *(détail : `JOURNAL.md`, entrées 9 à 12)*
+
+| | État |
+|---|---|
+| Appel entre deux onglets, en local | ✅ |
+| **Appel PC (WiFi) ↔ téléphone (4G), en ligne** | ✅ **confirmé le 22 août 2026** |
+| Indicateur « qui parle » | ✅ corrigé (`de23916`) |
+| Couper / activer le micro | ✅ |
+| `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` posées sur Render | ✅ Fait |
+
+⚠️ Le quota gratuit de Metered est limité : à surveiller si la démo est
+répétée souvent. Le relais n'est utilisé **que** lorsque la connexion directe
+échoue — deux postes du même réseau ne consomment donc rien.
 
 **État exact de la connexion Google** *(détail : `JOURNAL.md`, entrée 7)*
 
